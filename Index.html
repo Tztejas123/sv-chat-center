@@ -442,7 +442,43 @@
     <button class="btn-primary" onclick="submitReview()" style="margin-top:10px">Submit & Get ₹20 Off 🎁</button>
   </div>
 </div>
-
 <script src="script.js"></script>
+<!-- Connect to firebase -->
+<script src="script.js"></script>
+
+<!-- Firebase Connection -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { 
+    getFirestore, 
+    collection, 
+    addDoc, 
+    onSnapshot, 
+    getDocs 
+  } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBMI_SFhzXhieNaWUaTIK_hjBBB6L1aSYk",
+    authDomain: "sv-chat-center.firebaseapp.com",
+    projectId: "sv-chat-center",
+    storageBucket: "sv-chat-center.firebasestorage.app",
+    messagingSenderId: "238279356040",
+    appId: "1:238279356040:web:0fc355a548226bc723b93d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // Global access
+  window.db = db;
+  window.firebaseAPI = {
+    addDoc,
+    collection,
+    onSnapshot,
+    getDocs
+  };
+
+  console.log("🔥 Firebase Connected Successfully");
+</script>
 </body>
 </html>

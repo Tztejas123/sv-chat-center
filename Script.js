@@ -119,12 +119,13 @@ function load() {
   try {
     const stored = JSON.parse(localStorage.getItem("sv_v5") || "{}");
     admins     = stored.admins     || {};
-    customers  = stored.customers  || {};
+    customers  = stored.customers  || {}; 
     queue      = stored.queue      || [];
     salesLog   = stored.salesLog   || [];
     offers     = stored.offers     || [];
     combos     = stored.combos     || [];
     orders_all = stored.orders_all || [];
+    
     if (stored.items && stored.items.length > 0) ITEMS = stored.items;
     if (!admins["admin"]) admins["admin"] = { ...DEFAULT_ADMIN };
     if (combos.length === 0) {
