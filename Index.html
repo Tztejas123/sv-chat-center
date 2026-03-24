@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SV Chat Center & Ice Cream</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- =============================================
+     SCREEN 1: LANDING / ROLE SELECT
+============================================== -->
+<div id="screen-landing" class="screen active">
+  <div class="landing-wrap">
+    <div class="landing-particles" id="landing-particles"></div>
+    <div class="landing-content">
+      <div class="landing-logo-wrap">
+        <div class="landing-logo">SV</div>
+        <div class="landing-glow"></div>
+      </div>
+      <div class="landing-title">SV Chat Center</div>
+      <div class="landing-sub">& Ice Cream • Pune</div>
+      <div class="landing-tagline">🌶️ Authentic Street Food Since Day One</div>
+      <div class="landing-badges">
+        <span class="l-badge">🥇 Best Chat in Pune</span>
+        <span class="l-badge">⭐ 4.8 Rating</span>
+        <span class="l-badge">🚀 Fresh Daily</span>
+      </div>
+      <div class="role-cards">
+        <div class="role-card" onclick="showScreen('screen-customer-auth')">
+          <div class="role-card-bg"></div>
+          <div class="role-icon">🧑‍🍽️</div>
+          <div class="role-label">I'm a Customer</div>
+          <div class="role-desc">Order food, view offers & combos</div>
+          <div class="role-arrow">→</div>
+        </div>
+        <div class="role-card admin-role" onclick="showScreen('screen-admin-auth')">
+          <div class="role-card-bg"></div>
+          <div class="role-icon">🔐</div>
+          <div class="role-label">Admin Login</div>
+          <div class="role-desc">Manage menu, offers & sales</div>
+          <div class="role-arrow">→</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =============================================
+     SCREEN 2: CUSTOMER AUTH
+============================================== -->
+<div id="screen-customer-auth" class="screen">
+  <div class="auth-wrap">
+    <button class="back-btn" onclick="showScreen('screen-landing')">← Back</button>
+    <div class="auth-logo">SV</div>
+    <div class="auth-title">Welcome Back!</div>
+    <div class="auth-sub">Sign in or create your account</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="c-tab-login"  onclick="switchAuthTab('customer','login')">Login</button>
+      <button class="auth-tab"        id="c-tab-signup" onclick="switchAuthTab('customer','signup')">Sign Up</button>
+      <button class="auth-tab"        id="c-tab-forgot" onclick="switchAuthTab('customer','forgot')">Forgot?</button>
+    </div>
+
+    <!-- LOGIN FORM -->
+    <div id="c-form-login">
+      <div class="form-group">
+        <label>Email or Phone</label>
+        <input type="text" id="c-login-id" placeholder="Enter email or phone number">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pass-wrap">
+          <input type="password" id="c-login-pass" placeholder="Enter password">
+          <button class="eye-btn" onclick="togglePass('c-login-pass',this)">👁</button>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="customerLogin()">Login →</button>
+      <button class="btn-ghost"   onclick="customerGuestLogin()">Continue as Guest</button>
+    </div>
+
+    <!-- SIGNUP FORM -->
+    <div id="c-form-signup" style="display:none">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="c-signup-name" placeholder="Your name">
+      </div>
+      <div class="form-group">
+        <label>Mobile Number</label>
+        <input type="tel" id="c-signup-phone" placeholder="10-digit mobile number" maxlength="10">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="c-signup-email" placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pass-wrap">
+          <input type="password" id="c-signup-pass" placeholder="Create password (min 4 chars)">
+          <button class="eye-btn" onclick="togglePass('c-signup-pass',this)">👁</button>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="customerSignup()">Create Account →</button>
+    </div>
+
+    <!-- FORGOT PASSWORD FORM -->
+    <div id="c-form-forgot" style="display:none">
+      <div class="forgot-steps">
+        <!-- Step 1: Enter email -->
+        <div id="c-forgot-step1">
+          <div class="forgot-icon">📧</div>
+          <div class="forgot-title">Reset Your Password</div>
+          <div class="forgot-desc">Enter your registered email to receive an OTP</div>
+          <div class="form-group" style="margin-top:16px">
+            <label>Email Address</label>
+            <input type="email" id="c-forgot-email" placeholder="your@email.com">
+          </div>
+          <button class="btn-primary" onclick="sendCustomerOTP()">Send OTP →</button>
+        </div>
+        <!-- Step 2: Enter OTP -->
+        <div id="c-forgot-step2" style="display:none">
+          <div class="forgot-icon">🔑</div>
+          <div class="forgot-title">Enter OTP</div>
+          <div class="forgot-desc" id="c-otp-sent-to">We sent a 6-digit code to your email</div>
+          <div class="otp-boxes" id="c-otp-boxes">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'c-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'c-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'c-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'c-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'c-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'c-otp-boxes')" type="text" inputmode="numeric">
+          </div>
+          <div class="otp-timer" id="c-otp-timer">Resend in <span id="c-otp-countdown">60</span>s</div>
+          <button class="btn-ghost resend-btn" id="c-resend-btn" style="display:none" onclick="sendCustomerOTP()">Resend OTP</button>
+          <button class="btn-primary" onclick="verifyCustomerOTP()">Verify OTP →</button>
+        </div>
+        <!-- Step 3: New password -->
+        <div id="c-forgot-step3" style="display:none">
+          <div class="forgot-icon">🔒</div>
+          <div class="forgot-title">New Password</div>
+          <div class="forgot-desc">Create a strong new password</div>
+          <div class="form-group" style="margin-top:16px">
+            <label>New Password</label>
+            <div class="pass-wrap">
+              <input type="password" id="c-new-pass" placeholder="Minimum 4 characters">
+              <button class="eye-btn" onclick="togglePass('c-new-pass',this)">👁</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Confirm Password</label>
+            <input type="password" id="c-confirm-pass" placeholder="Repeat your password">
+          </div>
+          <button class="btn-primary" onclick="resetCustomerPassword()">Reset Password →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="auth-error" id="c-auth-error"></div>
+  </div>
+</div>
+
+<!-- =============================================
+     SCREEN 3: ADMIN AUTH
+============================================== -->
+<div id="screen-admin-auth" class="screen">
+  <div class="auth-wrap admin-auth">
+    <button class="back-btn" onclick="showScreen('screen-landing')">← Back</button>
+    <div class="auth-logo admin-logo">🔐</div>
+    <div class="auth-title">Admin Portal</div>
+    <div class="auth-sub">Authorized access only</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="a-tab-login"  onclick="switchAuthTab('admin','login')">Login</button>
+      <button class="auth-tab"        id="a-tab-signup" onclick="switchAuthTab('admin','signup')">Create Admin</button>
+      <button class="auth-tab"        id="a-tab-forgot" onclick="switchAuthTab('admin','forgot')">Forgot?</button>
+    </div>
+
+    <!-- ADMIN LOGIN -->
+    <div id="a-form-login">
+      <div class="form-group">
+        <label>Admin Username</label>
+        <input type="text" id="a-login-user" placeholder="Enter admin username">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pass-wrap">
+          <input type="password" id="a-login-pass" placeholder="Enter admin password">
+          <button class="eye-btn" onclick="togglePass('a-login-pass',this)">👁</button>
+        </div>
+      </div>
+      <button class="btn-primary admin-btn" onclick="adminLogin()">Login to Dashboard →</button>
+    </div>
+
+    <!-- ADMIN SIGNUP -->
+    <div id="a-form-signup" style="display:none">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="a-signup-name" placeholder="Admin name">
+      </div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="a-signup-user" placeholder="Choose username">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="a-signup-email" placeholder="admin@email.com">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pass-wrap">
+          <input type="password" id="a-signup-pass" placeholder="Strong password">
+          <button class="eye-btn" onclick="togglePass('a-signup-pass',this)">👁</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Admin Secret Key</label>
+        <input type="password" id="a-signup-key" placeholder="Secret key (ask owner)">
+      </div>
+      <button class="btn-primary admin-btn" onclick="adminSignup()">Create Admin Account →</button>
+    </div>
+
+    <!-- ADMIN FORGOT PASSWORD -->
+    <div id="a-form-forgot" style="display:none">
+      <div class="forgot-steps">
+        <div id="a-forgot-step1">
+          <div class="forgot-icon">📧</div>
+          <div class="forgot-title">Reset Admin Password</div>
+          <div class="forgot-desc">Enter your registered admin email</div>
+          <div class="form-group" style="margin-top:16px">
+            <label>Admin Email</label>
+            <input type="email" id="a-forgot-email" placeholder="admin@email.com">
+          </div>
+          <button class="btn-primary admin-btn" onclick="sendAdminOTP()">Send OTP →</button>
+        </div>
+        <div id="a-forgot-step2" style="display:none">
+          <div class="forgot-icon">🔑</div>
+          <div class="forgot-title">Enter OTP</div>
+          <div class="forgot-desc" id="a-otp-sent-to">We sent a 6-digit code</div>
+          <div class="otp-boxes" id="a-otp-boxes">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'a-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'a-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'a-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'a-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'a-otp-boxes')" type="text" inputmode="numeric">
+            <input class="otp-box" maxlength="1" oninput="otpNext(this,'a-otp-boxes')" type="text" inputmode="numeric">
+          </div>
+          <div class="otp-timer" id="a-otp-timer">Resend in <span id="a-otp-countdown">60</span>s</div>
+          <button class="btn-ghost resend-btn" id="a-resend-btn" style="display:none" onclick="sendAdminOTP()">Resend OTP</button>
+          <button class="btn-primary admin-btn" onclick="verifyAdminOTP()">Verify OTP →</button>
+        </div>
+        <div id="a-forgot-step3" style="display:none">
+          <div class="forgot-icon">🔒</div>
+          <div class="forgot-title">New Password</div>
+          <div class="forgot-desc">Set a new strong admin password</div>
+          <div class="form-group" style="margin-top:16px">
+            <label>New Password</label>
+            <div class="pass-wrap">
+              <input type="password" id="a-new-pass" placeholder="Minimum 4 characters">
+              <button class="eye-btn" onclick="togglePass('a-new-pass',this)">👁</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Confirm Password</label>
+            <input type="password" id="a-confirm-pass" placeholder="Repeat password">
+          </div>
+          <button class="btn-primary admin-btn" onclick="resetAdminPassword()">Reset Password →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="auth-error" id="a-auth-error"></div>
+    <div class="admin-hint">Default: username <b>admin</b> / password <b>sv@admin</b></div>
+  </div>
+</div>
+
+<!-- =============================================
+     SCREEN 4: CUSTOMER APP
+============================================== -->
+<div id="screen-customer-app" class="screen">
+
+  <!-- Customer Header -->
+  <div class="cust-header">
+    <div class="cust-header-inner">
+      <div class="brand">
+        <div class="logo-circle">SV</div>
+        <div>
+          <div class="brand-name">SV Chat Center</div>
+          <div class="brand-sub">& Ice Cream • Pune</div>
+        </div>
+      </div>
+      <div class="cust-header-right">
+        <div class="loyalty-chip" id="loyalty-chip" style="display:none"></div>
+        <div class="cust-user-badge" id="cust-user-badge"></div>
+        <button class="icon-btn" onclick="showScreen('screen-landing')">🚪</button>
+      </div>
+    </div>
+    <div class="offer-banner-container" id="cust-offer-banner"></div>
+    <!-- Live countdown for happy hour -->
+    <div class="live-offer-bar" id="live-offer-bar" style="display:none"></div>
+  </div>
+
+  <!-- Personalized Welcome -->
+  <div id="cust-welcome-bar" style="display:none"></div>
+
+  <!-- Category Bar -->
+  <div class="category-bar" id="cust-cat-bar"></div>
+
+  <!-- Main Layout -->
+  <div class="main-layout">
+    <div class="menu-section">
+      <div id="cust-combo-section"></div>
+      <div class="menu-grid" id="cust-menu-grid"></div>
+    </div>
+    <div class="view-panel">
+      <div class="panel-tab">
+        <button class="ptab active" id="tab-cart"  onclick="switchCustTab('cart')">🛒 Cart</button>
+        <button class="ptab"        id="tab-queue" onclick="switchCustTab('queue')">📋 Orders</button>
+      </div>
+      <div class="panel-body"  id="cust-panel-body"></div>
+      <div class="cart-footer" id="cust-cart-footer"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- =============================================
+     SCREEN 5: ADMIN APP
+============================================== -->
+<div id="screen-admin-app" class="screen">
+
+  <!-- Admin Header -->
+  <div class="admin-header">
+    <div class="admin-header-inner">
+      <div class="brand">
+        <div class="logo-circle admin-logo-sm">SV</div>
+        <div>
+          <div class="brand-name">Admin Panel</div>
+          <div class="brand-sub" id="admin-name-badge">SV Chat Center</div>
+        </div>
+      </div>
+      <button class="icon-btn" onclick="adminLogout()">🚪 Logout</button>
+    </div>
+    <div class="admin-nav">
+      <button class="anav active" id="anav-dashboard"  onclick="switchAdminTab('dashboard')">📊 Dashboard</button>
+      <button class="anav"        id="anav-menu"       onclick="switchAdminTab('menu')">🍽 Menu</button>
+      <button class="anav"        id="anav-offers"     onclick="switchAdminTab('offers')">🎁 Offers</button>
+      <button class="anav"        id="anav-customers"  onclick="switchAdminTab('customers')">👥 Customers</button>
+      <button class="anav"        id="anav-orders"     onclick="switchAdminTab('orders')">📋 Orders</button>
+      <button class="anav"        id="anav-analytics"  onclick="switchAdminTab('analytics')">📈 Analytics</button>
+      <button class="anav"        id="anav-marketing"  onclick="switchAdminTab('marketing')">📣 Marketing</button>
+    </div>
+  </div>
+
+  <div class="admin-content" id="admin-content"></div>
+</div>
+
+<!-- =============================================
+     UPSELL POPUP
+============================================== -->
+<div class="upsell-overlay" id="upsell-overlay" onclick="closeUpsell()">
+  <div class="upsell-card" onclick="event.stopPropagation()">
+    <div class="upsell-confetti" id="upsell-confetti"></div>
+    <div class="upsell-icon"  id="upsell-icon">🍦</div>
+    <div class="upsell-title" id="upsell-title">Add Ice Cream?</div>
+    <div class="upsell-sub"   id="upsell-sub">Only ₹30 more!</div>
+    <div class="upsell-timer-bar"><div class="upsell-timer-fill" id="upsell-timer-fill"></div></div>
+    <div class="upsell-timer-text" id="upsell-timer-text">Offer expires in 10s</div>
+    <div class="upsell-btns">
+      <button class="upsell-yes" onclick="acceptUpsell()">Yes, Add it! 🎉</button>
+      <button class="upsell-no"  onclick="closeUpsell()">No thanks</button>
+    </div>
+  </div>
+</div>
+
+<!-- IMAGE UPLOAD MODAL (Admin) -->
+<div class="modal-overlay" id="image-modal" onclick="closeImageModal()">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div class="modal-title">📸 Upload Item Image</div>
+    <div class="modal-sub" id="modal-item-name">Item Name</div>
+    <div class="image-upload-area" id="image-drop-area" onclick="document.getElementById('image-file-input').click()">
+      <div class="upload-icon">📷</div>
+      <div class="upload-text">Click to upload or drag & drop</div>
+      <div class="upload-sub">JPG, PNG up to 2MB</div>
+      <img id="image-preview" style="display:none;max-width:100%;max-height:200px;border-radius:12px;margin-top:10px" />
+    </div>
+    <input type="file" id="image-file-input" accept="image/*" style="display:none" onchange="handleImageUpload(event)">
+    <!-- URL input for online images -->
+    <div style="margin-top:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase">OR paste image URL</div>
+      <div style="display:flex;gap:8px">
+        <input type="url" id="image-url-input" class="a-input" placeholder="https://example.com/food.jpg" style="font-size:12px">
+        <button class="a-btn" style="padding:8px 14px;white-space:nowrap" onclick="loadImageFromURL()">Use URL</button>
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="a-btn a-btn-green" onclick="saveItemImage()">✅ Save Image</button>
+      <button class="a-btn a-btn-red"   onclick="closeImageModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOYALTY MILESTONE POPUP -->
+<div class="loyalty-overlay" id="loyalty-overlay">
+  <div class="loyalty-popup">
+    <div class="loyalty-icon" id="loyalty-icon">🎉</div>
+    <div class="loyalty-title" id="loyalty-title">You earned 50 points!</div>
+    <div class="loyalty-sub" id="loyalty-sub">Keep ordering to unlock rewards</div>
+    <button class="loyalty-close" onclick="closeLoyaltyPopup()">Awesome! 🙌</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="notif" id="notif"></div>
+
+<!-- Free Ice Cream Celebration -->
+<div class="celebration-overlay" id="celebration-overlay">
+  <div class="celebration-content">
+    <div class="celebration-emoji">🍦</div>
+    <div class="celebration-text">FREE Ice Cream Unlocked!</div>
+    <div class="celebration-sub">Added to your cart automatically 🎉</div>
+  </div>
+</div>
+
+<!-- Review prompt -->
+<div class="review-overlay" id="review-overlay">
+  <div class="review-card">
+    <div class="review-close" onclick="closeReview()">✕</div>
+    <div style="font-size:40px;margin-bottom:8px">⭐</div>
+    <div class="review-title">Enjoying our food?</div>
+    <div class="review-sub">Rate your experience & win ₹20 off next order!</div>
+    <div class="star-row" id="star-row">
+      <span class="star" onclick="setRating(1)">☆</span>
+      <span class="star" onclick="setRating(2)">☆</span>
+      <span class="star" onclick="setRating(3)">☆</span>
+      <span class="star" onclick="setRating(4)">☆</span>
+      <span class="star" onclick="setRating(5)">☆</span>
+    </div>
+    <textarea id="review-text" class="review-textarea" placeholder="Tell us what you loved... (optional)"></textarea>
+    <button class="btn-primary" onclick="submitReview()" style="margin-top:10px">Submit & Get ₹20 Off 🎁</button>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
