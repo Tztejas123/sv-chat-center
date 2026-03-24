@@ -1,13 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta name="google-site-verification" content="XYZ123" />
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SV Chat Center - Best Chat in Pune</title>
-  <meta name="description" content="Order Samosa Chat, Kachori, Ice Cream online from SV Chat Center. Fast service with offers and combos.">
-<meta name="keywords" content="chat center pune, kachori, samosa chat, ice cream pune, street food pune">
-<meta name="author" content="SV Chat Center">
+  <title>SV Chat Center & Ice Cream</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
@@ -113,7 +109,6 @@
     <!-- FORGOT PASSWORD FORM -->
     <div id="c-form-forgot" style="display:none">
       <div class="forgot-steps">
-        <!-- Step 1: Enter email -->
         <div id="c-forgot-step1">
           <div class="forgot-icon">📧</div>
           <div class="forgot-title">Reset Your Password</div>
@@ -124,7 +119,6 @@
           </div>
           <button class="btn-primary" onclick="sendCustomerOTP()">Send OTP →</button>
         </div>
-        <!-- Step 2: Enter OTP -->
         <div id="c-forgot-step2" style="display:none">
           <div class="forgot-icon">🔑</div>
           <div class="forgot-title">Enter OTP</div>
@@ -141,7 +135,6 @@
           <button class="btn-ghost resend-btn" id="c-resend-btn" style="display:none" onclick="sendCustomerOTP()">Resend OTP</button>
           <button class="btn-primary" onclick="verifyCustomerOTP()">Verify OTP →</button>
         </div>
-        <!-- Step 3: New password -->
         <div id="c-forgot-step3" style="display:none">
           <div class="forgot-icon">🔒</div>
           <div class="forgot-title">New Password</div>
@@ -161,7 +154,6 @@
         </div>
       </div>
     </div>
-
     <div class="auth-error" id="c-auth-error"></div>
   </div>
 </div>
@@ -182,7 +174,6 @@
       <button class="auth-tab"        id="a-tab-forgot" onclick="switchAuthTab('admin','forgot')">Forgot?</button>
     </div>
 
-    <!-- ADMIN LOGIN -->
     <div id="a-form-login">
       <div class="form-group">
         <label>Admin Username</label>
@@ -198,7 +189,6 @@
       <button class="btn-primary admin-btn" onclick="adminLogin()">Login to Dashboard →</button>
     </div>
 
-    <!-- ADMIN SIGNUP -->
     <div id="a-form-signup" style="display:none">
       <div class="form-group">
         <label>Full Name</label>
@@ -226,7 +216,6 @@
       <button class="btn-primary admin-btn" onclick="adminSignup()">Create Admin Account →</button>
     </div>
 
-    <!-- ADMIN FORGOT PASSWORD -->
     <div id="a-form-forgot" style="display:none">
       <div class="forgot-steps">
         <div id="a-forgot-step1">
@@ -284,8 +273,6 @@
      SCREEN 4: CUSTOMER APP
 ============================================== -->
 <div id="screen-customer-app" class="screen">
-
-  <!-- Customer Header -->
   <div class="cust-header">
     <div class="cust-header-inner">
       <div class="brand">
@@ -302,17 +289,15 @@
       </div>
     </div>
     <div class="offer-banner-container" id="cust-offer-banner"></div>
-    <!-- Live countdown for happy hour -->
+    <!-- Live offer timers bar -->
     <div class="live-offer-bar" id="live-offer-bar" style="display:none"></div>
+    <!-- ALL offer timers container -->
+    <div id="all-offer-timers"></div>
   </div>
 
-  <!-- Personalized Welcome -->
   <div id="cust-welcome-bar" style="display:none"></div>
-
-  <!-- Category Bar -->
   <div class="category-bar" id="cust-cat-bar"></div>
 
-  <!-- Main Layout -->
   <div class="main-layout">
     <div class="menu-section">
       <div id="cust-combo-section"></div>
@@ -327,15 +312,12 @@
       <div class="cart-footer" id="cust-cart-footer"></div>
     </div>
   </div>
-
 </div>
 
 <!-- =============================================
      SCREEN 5: ADMIN APP
 ============================================== -->
 <div id="screen-admin-app" class="screen">
-
-  <!-- Admin Header -->
   <div class="admin-header">
     <div class="admin-header-inner">
       <div class="brand">
@@ -345,7 +327,10 @@
           <div class="brand-sub" id="admin-name-badge">SV Chat Center</div>
         </div>
       </div>
-      <button class="icon-btn" onclick="adminLogout()">🚪 Logout</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="firebase-status" id="firebase-status">🔴 Offline</div>
+        <button class="icon-btn" onclick="adminLogout()">🚪 Logout</button>
+      </div>
     </div>
     <div class="admin-nav">
       <button class="anav active" id="anav-dashboard"  onclick="switchAdminTab('dashboard')">📊 Dashboard</button>
@@ -357,13 +342,10 @@
       <button class="anav"        id="anav-marketing"  onclick="switchAdminTab('marketing')">📣 Marketing</button>
     </div>
   </div>
-
   <div class="admin-content" id="admin-content"></div>
 </div>
 
-<!-- =============================================
-     UPSELL POPUP
-============================================== -->
+<!-- UPSELL POPUP -->
 <div class="upsell-overlay" id="upsell-overlay" onclick="closeUpsell()">
   <div class="upsell-card" onclick="event.stopPropagation()">
     <div class="upsell-confetti" id="upsell-confetti"></div>
@@ -379,7 +361,7 @@
   </div>
 </div>
 
-<!-- IMAGE UPLOAD MODAL (Admin) -->
+<!-- IMAGE UPLOAD MODAL -->
 <div class="modal-overlay" id="image-modal" onclick="closeImageModal()">
   <div class="modal-card" onclick="event.stopPropagation()">
     <div class="modal-title">📸 Upload Item Image</div>
@@ -391,7 +373,6 @@
       <img id="image-preview" style="display:none;max-width:100%;max-height:200px;border-radius:12px;margin-top:10px" />
     </div>
     <input type="file" id="image-file-input" accept="image/*" style="display:none" onchange="handleImageUpload(event)">
-    <!-- URL input for online images -->
     <div style="margin-top:12px">
       <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase">OR paste image URL</div>
       <div style="display:flex;gap:8px">
@@ -446,19 +427,33 @@
     <button class="btn-primary" onclick="submitReview()" style="margin-top:10px">Submit & Get ₹20 Off 🎁</button>
   </div>
 </div>
-<script src="script.js"></script>
-<!-- Connect to firebase -->
+
+<!-- FIREBASE LOADING INDICATOR -->
+<div id="firebase-loader" style="display:none;position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#FF6B35,var(--gold));z-index:99999;animation:loader-slide 1.5s ease-in-out infinite"></div>
+
 <script src="script.js"></script>
 
-<!-- Firebase Connection -->
+<!-- =============================================
+     FIREBASE CONNECTION (PRODUCTION READY)
+============================================== -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-  import { 
-    getFirestore, 
-    collection, 
-    addDoc, 
-    onSnapshot, 
-    getDocs 
+  import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    onSnapshot,
+    getDocs,
+    doc,
+    updateDoc,
+    deleteDoc,
+    setDoc,
+    getDoc,
+    query,
+    orderBy,
+    limit,
+    serverTimestamp
   } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -467,22 +462,41 @@
     projectId: "sv-chat-center",
     storageBucket: "sv-chat-center.firebasestorage.app",
     messagingSenderId: "238279356040",
-    appId: "1:238279356040:web:0fc355a548226bc723b93d"
+    appId: "1:238279356040:web:0fc355a548226bc723b93d",
+    measurementId: "G-BEN0V1YEE9"
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  const db  = getFirestore(app);
+  const analytics = getAnalytics(app);
 
-  // Global access
-  window.db = db;
+  // ── Expose everything globally ──
+  window.db        = db;
+  window.analytics = analytics;
+  window.logEvent  = logEvent;
+
   window.firebaseAPI = {
-    addDoc,
-    collection,
-    onSnapshot,
-    getDocs
+    addDoc, collection, onSnapshot, getDocs,
+    doc, updateDoc, deleteDoc, setDoc, getDoc,
+    query, orderBy, limit, serverTimestamp
   };
 
-  console.log("🔥 Firebase Connected Successfully");
+  // ── Update status badge ──
+  const statusEl = document.getElementById("firebase-status");
+  if (statusEl) {
+    statusEl.textContent = "🟢 Live";
+    statusEl.style.color = "#27ae60";
+  }
+
+  console.log("🔥 Firebase Connected — SV Chat Center");
+
+  // ── Start real-time listeners after short delay ──
+  setTimeout(() => {
+    if (typeof listenToOrders      === "function") listenToOrders();
+    if (typeof loadItemsFromFirebase === "function") loadItemsFromFirebase();
+    if (typeof loadOffersFromFirebase === "function") loadOffersFromFirebase();
+  }, 1500);
 </script>
+
 </body>
 </html>
