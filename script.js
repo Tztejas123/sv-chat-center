@@ -9,31 +9,31 @@
 // ===================================================
 
 const ADMIN_SECRET_KEY = "sv@secret2024";
-const DEFAULT_ADMIN = { username:"admin", password:"sv@admin", name:"Owner", email:"admin@svchat.com" };
+const DEFAULT_ADMIN = { username:"admin", password:"sv@admin", name:"Owner", email:"tejaszombade55@gmail.com" };
 
 // ===================================================
 //   STORE LOCATION & DELIVERY CONFIG
 // ===================================================
 const STORE_LOCATION = {
   name:     "SV Chat Center & Ice Cream",
-  address:  "Shop No. 12, Near Ganesh Mandir, Kothrud, Pune - 411038",
-  lat:      18.5074,
-  lng:      73.8077,
-  phone:    "9876543210",
+  address:  "JQ2X+Q6J, Pimple Saudagar, Pimpri-Chinchwad, Maharashtra 411027",
+  lat:      18.5772,
+  lng:      73.8055,
+  phone:    "9604134624",
   mapUrl:   "https://maps.google.com/?q=SV+Chat+Center+Kothrud+Pune",
   embedUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3783.8!2d73.8077!3d18.5074!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2sSV+Chat+Center!5e0!3m2!1sen!2sin!4v1"
 };
 const DELIVERY_MIN_ORDER  = 300;
-const DELIVERY_RADIUS_KM  = 10;
+const DELIVERY_RADIUS_KM  = 5;
 const DELIVERY_CHARGE     = 30;
 
 // ===================================================
 //   ADMIN CONTACT NUMBERS CONFIG
 // ===================================================
 const ADMIN_CONTACT_NUMBERS = [
-  { id:"n1", label:"Owner (Tejas)", number:"9876543210", whatsapp:true,  active:true  },
-  { id:"n2", label:"Manager",       number:"9123456780", whatsapp:true,  active:false },
-  { id:"n3", label:"Store Landline",number:"02012345678",whatsapp:false, active:false },
+  { id:"n1", label:"(Rupali)", number:"9604134624", whatsapp:true,  active:true  },
+  { id:"n2", label:"Prajwal",  number:"8308296258", whatsapp:true,  active:false },
+  { id:"n3", label:"Tejas",    number:"8766716669",whatsapp:false, active:false },
 ];
 
 // ===================================================
