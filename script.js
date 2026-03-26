@@ -1,5 +1,5 @@
 // ===================================================
-//   SV CHAT CENTER v7 — script.js  (FIXED)
+//   SV CHAT CENTER v8 — script.js
 //   ✅ Dynamic Categories in Add-Item dropdown
 //   ✅ Customer: Order Online / Come to Store
 //   ✅ Delivery Zone (5-10km, ₹300+ order)
@@ -20,20 +20,20 @@ const STORE_LOCATION = {
   lat:      18.5772,
   lng:      73.8055,
   phone:    "9604134624",
-  mapUrl:   "https://maps.google.com/?q=SV+Chat+Center+Kothrud+Pune",
+  mapUrl:   "https://maps.google.com/?q=JQ2X%2BQ6J,+Pimple+Saudagar,+Pimpri-Chinchwad,+Maharashtra+411027",
   embedUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3783.8!2d73.8077!3d18.5074!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2sSV+Chat+Center!5e0!3m2!1sen!2sin!4v1"
 };
 const DELIVERY_MIN_ORDER  = 300;
-const DELIVERY_RADIUS_KM  = 5;
+const DELIVERY_RADIUS_KM  = 10;
 const DELIVERY_CHARGE     = 30;
 
 // ===================================================
 //   ADMIN CONTACT NUMBERS CONFIG
 // ===================================================
 const ADMIN_CONTACT_NUMBERS = [
-  { id:"n1", label:"(Rupali)", number:"9604134624", whatsapp:true,  active:true  },
-  { id:"n2", label:"Prajwal",  number:"8308296258", whatsapp:true,  active:false },
-  { id:"n3", label:"Tejas",    number:"8766716669",whatsapp:false, active:false },
+  { id:"n1", label:"Rupali",  number:"9604134624", whatsapp:true,  active:true  },
+  { id:"n2", label:"Prajwal", number:"8308296258", whatsapp:true,  active:false },
+  { id:"n3", label:"Tejas",   number:"8766716669", whatsapp:false, active:false },
 ];
 
 // ===================================================
@@ -130,6 +130,9 @@ const LABEL_MAP = { chat:"Chat",panipuri:"Panipuri",kachori:"Kachori",wada:"Wada
 const BAR_COLORS= { chat:"#E24B4A",panipuri:"#E8622A",kachori:"#7F77DD",wada:"#EF9F27",ice:"#378ADD",beverages:"#3ABABA",snacks:"#9B59B6" };
 
 // ===== LOYALTY CONFIG =====
+const ORDER_STATUSES = ["Pending","Preparing","Ready","Done"];
+
+// LOYALTY
 const POINTS_PER_RUPEE          = 1;
 const LOYALTY_FIREBASE_THRESHOLD = 500;
 const REWARD_TIERS = [
@@ -153,6 +156,7 @@ let pendingImageItemId=null, orderToken=1;
 let upsellTimerInterval=null, happyHourInterval=null;
 let otpStore={};
 let currentRating=0;
+let adminSearchTerm="";
 let offerTimerIntervals=[];
 // Order mode: "pickup" | "delivery"
 let orderMode = "pickup";
@@ -169,6 +173,56 @@ function showLoader(show) {
   const el = document.getElementById("firebase-loader");
   if (el) el.style.display = show ? "block" : "none";
 }
+// ===================================================
+//   FIREBASE — FETCH ON LOAD (fixes customer disappear)
+// ===================================================
+async function fetchCustomersFromFirebase() {
+  if(!isFirebaseReady()) return;
+  try {
+    const {getDocs,collection}=firebaseAPI;
+    const snap=await getDocs(collection(db,"customers"));
+    snap.forEach(doc=>{
+      const d=doc.data();
+      if(d.id&&!customers[d.id]) {
+        customers[d.id]={id:d.id,name:d.name||"",phone:d.phone||"",email:d.email||"",
+          password:d.password||"",orders:d.orders||[],totalSpent:d.totalSpent||0,
+          visits:d.visits||0,loyaltyPoints:d.loyaltyPoints||0,joinedAt:d.joinedAt||Date.now()};
+      } else if(d.id&&customers[d.id]) {
+        if((d.loyaltyPoints||0)>(customers[d.id].loyaltyPoints||0)) customers[d.id].loyaltyPoints=d.loyaltyPoints;
+        if((d.totalSpent||0)>(customers[d.id].totalSpent||0)) customers[d.id].totalSpent=d.totalSpent;
+        if((d.visits||0)>(customers[d.id].visits||0)) customers[d.id].visits=d.visits;
+      }
+    });
+    save();
+    console.log("✅ Customers fetched from Firebase:",Object.keys(customers).length);
+  } catch(e){console.error("Fetch customers error:",e);}
+}
+
+async function fetchOrdersFromFirebase() {
+  if(!isFirebaseReady()) return;
+  try {
+    const {getDocs,collection,query,orderBy,limit}=firebaseAPI;
+    const q=query(collection(db,"orders"),orderBy("time","desc"),limit(100));
+    const snap=await getDocs(q);
+    const fbOrders=[];
+    snap.forEach(doc=>{ const d=doc.data(); d._docId=doc.id; fbOrders.push(d); });
+    const existingTokens=new Set(queue.map(o=>o.token));
+    fbOrders.forEach(o=>{ if(!existingTokens.has(o.token)) queue.push(o); });
+    queue.sort((a,b)=>(b.time||0)-(a.time||0));
+    const maxTok=Math.max(...queue.map(o=>o.token||0),orderToken-1);
+    if(maxTok>=orderToken) orderToken=maxTok+1;
+    save();
+    console.log("✅ Orders fetched:",fbOrders.length);
+  } catch(e){console.error("Fetch orders error:",e);}
+}
+
+async function updateOrderStatusInFirebase(docId,status) {
+  if(!isFirebaseReady()||!docId) return;
+  try { const {updateDoc,doc}=firebaseAPI; await updateDoc(doc(db,"orders",docId),{status}); }
+  catch(e){console.error("Update order status:",e);}
+}
+
+
 
 // ===================================================
 //   LOAD / SAVE
@@ -538,7 +592,72 @@ function customerLogin() {
   loginAsCustomer(cust);
 }
 
+
+// ===================================================
+//   GUEST ORDER MODAL — Force login before ordering
+// ===================================================
+function showGuestOrderModal() {
+  const existing=document.getElementById("guest-order-modal");
+  if(existing){existing.classList.add("show");return;}
+  const el=document.createElement("div");
+  el.id="guest-order-modal";
+  el.className="modal-overlay show";
+  el.innerHTML=`
+    <div class="modal-card" style="max-width:380px;text-align:center" onclick="event.stopPropagation()">
+      <div style="font-size:48px;margin-bottom:12px">🔐</div>
+      <div class="modal-title">Login Required to Order</div>
+      <div style="font-size:13px;color:var(--muted);margin:8px 0 20px">Create a free account to place orders, track tokens, earn loyalty points!</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn-primary" style="margin:0"
+          onclick="document.getElementById('guest-order-modal').classList.remove('show');showScreen('screen-customer-auth');switchAuthTab('customer','signup')">
+          ✨ Create Free Account
+        </button>
+        <button class="btn-ghost"
+          onclick="document.getElementById('guest-order-modal').classList.remove('show');showScreen('screen-customer-auth');switchAuthTab('customer','login')">
+          Already have account? Login
+        </button>
+        <button class="btn-ghost" style="font-size:11px;padding:8px;color:var(--muted)"
+          onclick="document.getElementById('guest-order-modal').classList.remove('show')">
+          Continue browsing as guest
+        </button>
+      </div>
+    </div>`;
+  el.onclick=(e)=>{if(e.target===el)el.classList.remove("show");};
+  document.body.appendChild(el);
+}
+
+// ===================================================
+//   TOKEN CONFIRMATION POPUP
+// ===================================================
+function showTokenConfirmation(token, total, mode) {
+  const existing=document.getElementById("token-confirm-overlay");
+  if(existing) existing.remove();
+  const el=document.createElement("div");
+  el.id="token-confirm-overlay";
+  el.className="modal-overlay show";
+  el.innerHTML=`
+    <div class="token-confirm-card" onclick="event.stopPropagation()">
+      <div class="token-confirm-icon">🎟️</div>
+      <div class="token-confirm-title">Order Placed!</div>
+      <div class="token-number-big">#${token}</div>
+      <div class="token-confirm-sub">Your Token Number</div>
+      <div class="token-confirm-mode">${mode==="delivery"?"🛵 Home Delivery":"🏪 Pickup at Store"}</div>
+      <div class="token-confirm-total">Total: ₹${total}</div>
+      <div class="token-confirm-steps">
+        <div class="tc-step done">✅ Order Received</div>
+        <div class="tc-step">⏳ Being Prepared</div>
+        <div class="tc-step">🔔 Ready to ${mode==="delivery"?"Deliver":"Pickup"}</div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Show this token to collect your order</div>
+      <button class="a-btn a-btn-green" style="width:100%;padding:13px"
+        onclick="document.getElementById('token-confirm-overlay').remove()">Got it! 🙌</button>
+    </div>`;
+  document.body.appendChild(el);
+  setTimeout(()=>{const e=document.getElementById("token-confirm-overlay");if(e)e.remove();},8000);
+}
+
 function customerGuestLogin() {
+  // Guest can browse but not order
   currentUser = { type:"customer", id:"guest", name:"Guest" };
   launchCustomerApp();
 }
@@ -1287,6 +1406,11 @@ function switchCustTab(tab) {
 //   PLACE ORDER — Firebase + localStorage
 // ===================================================
 async function placeOrder() {
+  // ✅ Guest guard — must login to place orders
+  if(currentUser.id==="guest") {
+    showGuestOrderModal();
+    return;
+  }
   const total=cartTotal();
   if(total===0){showNotif("⚠ Cart is empty!");return;}
 
@@ -1342,7 +1466,10 @@ async function placeOrder() {
   }
 
   save();
-  showNotif(`✅ Token #${order.token} placed! ${orderMode==="delivery"?"🛵 Delivery order!":"🏪 Pickup!"} ${fbId?"🔥 Saved!":""}`,3500);
+
+  // ✅ Show token confirmation popup
+  showTokenConfirmation(order.token, total, orderMode);
+  showNotif(`✅ Token #${order.token} placed! ${orderMode==="delivery"?"🛵 Delivery!":"🏪 Pickup!"}`,3000);
 
   if(typeof logEvent==="function"&&typeof analytics!=="undefined"){
     logEvent(analytics,"purchase",{value:total,currency:"INR",items:Object.keys(snap)});
@@ -1354,6 +1481,8 @@ async function placeOrder() {
   customerLocation=null;
   renderCustMenu();
   renderCustCartPanel();
+  // Switch to orders tab after 3 seconds
+  setTimeout(()=>switchCustTab("queue"),3000);
 }
 
 function checkLoyaltyMilestone(totalPoints, earned) {
@@ -2008,7 +2137,10 @@ function renderAdminOrders(){
             <div class="order-total">₹${o.total}</div>
             ${o.phone?`<div class="order-phone">${o.phone}</div>`:""}
           </div>
-          ${o.status!=="Ready"?`<button class="ready-btn" onclick="adminMarkReady(${i})">✓ Ready</button>`:""}
+          <select class="a-select" style="width:110px;font-size:11px;padding:5px 8px"
+          onchange="updateOrderStatusAdmin(${i},this.value)">
+          ${ORDER_STATUSES.map(s=>`<option value="${s}"${(o.status||"Pending")===s?" selected":""}>${s}</option>`).join("")}
+        </select>
           <button class="del-btn" onclick="adminRemoveOrder(${i})">✕</button>
         </div>`).join("");
   document.getElementById("admin-content").innerHTML=`
@@ -2017,6 +2149,13 @@ function renderAdminOrders(){
 }
 
 function adminMarkReady(i){if(queue[i]){queue[i].status="Ready";save();renderAdminOrders();showNotif(`🔔 Token #${queue[i].token} is Ready!`);}}
+function updateOrderStatusAdmin(idx, status) {
+  if(!queue[idx]) return;
+  queue[idx].status=status;
+  if(queue[idx]._docId) updateOrderStatusInFirebase(queue[idx]._docId, status);
+  save();
+  showNotif("✅ Token #"+queue[idx].token+" → "+status);
+}
 function adminRemoveOrder(i){queue.splice(i,1);save();renderAdminOrders();}
 
 // ===================================================
@@ -2196,7 +2335,17 @@ showScreen("screen-landing");
 setInterval(renderOfferBanner, 60000);
 setInterval(renderAllOfferTimers, 30000);
 
-// CSS for confetti animation
+// CSS for confetti + token animations
 const style=document.createElement("style");
-style.textContent=`@keyframes confetti-fall{0%{transform:translateY(-20px) rotate(0);opacity:0.7}100%{transform:translateY(120px) rotate(360deg);opacity:0}}`;
+style.textContent=`@keyframes confetti-fall{0%{transform:translateY(-20px) rotate(0);opacity:0.7}100%{transform:translateY(120px) rotate(360deg);opacity:0}} @keyframes token-bounce{0%{transform:scale(0) rotate(-10deg)}70%{transform:scale(1.1) rotate(3deg)}100%{transform:scale(1) rotate(0)}}`;
 document.head.appendChild(style);
+
+// ✅ Called by Firebase module after init to fetch persisted data
+window._onFirebaseReady = async function() {
+  console.log("🔥 Firebase ready — fetching persisted data...");
+  await fetchCustomersFromFirebase();
+  await fetchOrdersFromFirebase();
+  listenToOrders();
+  loadItemsFromFirebase();
+  loadOffersFromFirebase();
+};

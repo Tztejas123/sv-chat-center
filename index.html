@@ -434,26 +434,17 @@
 <script src="script.js"></script>
 
 <!-- =============================================
-     FIREBASE CONNECTION (PRODUCTION READY)
+     FIREBASE PATCH — Replace the existing <script type="module"> block
+     in index.html with this one.
+     KEY CHANGE: calls window._onFirebaseReady() after init
 ============================================== -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
   import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
   import {
-    getFirestore,
-    collection,
-    addDoc,
-    onSnapshot,
-    getDocs,
-    doc,
-    updateDoc,
-    deleteDoc,
-    setDoc,
-    getDoc,
-    query,
-    orderBy,
-    limit,
-    serverTimestamp
+    getFirestore, collection, addDoc, onSnapshot, getDocs,
+    doc, updateDoc, deleteDoc, setDoc, getDoc,
+    query, orderBy, limit, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -470,33 +461,24 @@
   const db  = getFirestore(app);
   const analytics = getAnalytics(app);
 
-  // ── Expose everything globally ──
   window.db        = db;
   window.analytics = analytics;
   window.logEvent  = logEvent;
-
   window.firebaseAPI = {
     addDoc, collection, onSnapshot, getDocs,
     doc, updateDoc, deleteDoc, setDoc, getDoc,
     query, orderBy, limit, serverTimestamp
   };
 
-  // ── Update status badge ──
   const statusEl = document.getElementById("firebase-status");
-  if (statusEl) {
-    statusEl.textContent = "🟢 Live";
-    statusEl.style.color = "#27ae60";
-  }
+  if(statusEl){ statusEl.textContent = "🟢 Live"; statusEl.style.color = "#27ae60"; }
 
-  console.log("🔥 Firebase Connected — SV Chat Center");
+  console.log("🔥 Firebase Connected — SV Chat Center v8");
 
-  // ── Start real-time listeners after short delay ──
+  // ✅ KEY FIX: Call _onFirebaseReady to fetch customers + orders on load
   setTimeout(() => {
-    if (typeof listenToOrders      === "function") listenToOrders();
-    if (typeof loadItemsFromFirebase === "function") loadItemsFromFirebase();
-    if (typeof loadOffersFromFirebase === "function") loadOffersFromFirebase();
+    if(typeof window._onFirebaseReady === "function") window._onFirebaseReady();
   }, 1500);
 </script>
-
 </body>
 </html>

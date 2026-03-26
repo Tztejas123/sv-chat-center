@@ -651,3 +651,181 @@ body{font-family:'Poppins',Arial,sans-serif;background:var(--bg);color:var(--tex
 @media(max-width:360px){
   .menu-grid,.combo-grid{grid-template-columns:1fr}
 }
+/* ===================================================
+   SV CHAT CENTER v8 — style_additions.css
+   ADD THESE TO BOTTOM OF style.css
+=================================================== */
+
+/* ===================================================
+   CONTACT BAR (Customer screen)
+=================================================== */
+.contact-bar{
+  background:linear-gradient(135deg,#1a3a2e,#0d2a1e);
+  border-bottom:1px solid rgba(99,153,34,0.3);
+}
+.contact-bar-inner{
+  display:flex;align-items:center;gap:10px;padding:8px 16px;flex-wrap:wrap;
+}
+.contact-bar-icon{font-size:14px}
+.contact-bar-text{font-size:12px;color:rgba(255,255,255,0.7);font-weight:600}
+.contact-call-btn{
+  background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);
+  color:#fff;padding:5px 12px;border-radius:10px;font-size:12px;font-weight:700;
+  text-decoration:none;transition:all 0.2s;
+}
+.contact-call-btn:hover{background:rgba(255,255,255,0.22)}
+.contact-wa-btn{
+  background:rgba(37,211,102,0.2);border:1px solid rgba(37,211,102,0.4);
+  color:#25d366;padding:5px 12px;border-radius:10px;font-size:12px;font-weight:700;
+  text-decoration:none;transition:all 0.2s;
+}
+.contact-wa-btn:hover{background:rgba(37,211,102,0.35)}
+
+/* ===================================================
+   ORDER MODE PANEL (Cart)
+=================================================== */
+.order-mode-wrap{
+  background:linear-gradient(135deg,#f8f6ff,#f0eeff);
+  border:1.5px solid rgba(127,119,221,0.2);border-radius:14px;
+  padding:14px;margin-top:10px;
+}
+.order-mode-title{font-size:12px;font-weight:700;color:var(--brand);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px}
+.order-mode-btns{display:flex;gap:8px;margin-bottom:12px}
+.mode-btn{
+  flex:1;padding:10px 8px;border:2px solid var(--border);border-radius:12px;
+  background:var(--card);cursor:pointer;font-size:12px;font-weight:700;
+  font-family:'Poppins',sans-serif;color:var(--muted);transition:all 0.25s;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+.mode-btn small{font-size:10px;font-weight:500;color:var(--muted)}
+.mode-btn.mode-active{
+  border-color:var(--brand);background:var(--brand-l);color:var(--brand);
+  box-shadow:0 0 0 3px rgba(45,27,94,0.1);
+}
+.mode-btn:hover:not(.mode-active){border-color:rgba(45,27,94,0.3);background:var(--surface)}
+
+.pickup-info{
+  background:var(--green-l);border:1.5px solid rgba(99,153,34,0.3);border-radius:10px;
+  padding:12px;display:flex;flex-direction:column;gap:6px;
+}
+.pickup-info-row{font-size:12px;color:var(--green-d);font-weight:600;display:flex;align-items:flex-start;gap:6px}
+.map-link-btn{
+  display:inline-flex;align-items:center;gap:6px;background:var(--green);
+  color:#fff;padding:8px 16px;border-radius:10px;font-size:12px;font-weight:700;
+  text-decoration:none;margin-top:6px;transition:all 0.2s;
+}
+.map-link-btn:hover{background:var(--green-d);transform:translateY(-1px)}
+.delivery-form{display:flex;flex-direction:column;gap:8px}
+.delivery-info-note{font-size:11px;font-weight:700;color:var(--blue-d);background:var(--blue-l);padding:7px 10px;border-radius:8px}
+.delivery-addr-input{margin:0;font-size:13px}
+.locate-btn{
+  background:none;border:1.5px solid var(--blue);color:var(--blue-d);
+  padding:8px 14px;border-radius:10px;font-size:12px;font-weight:700;
+  cursor:pointer;font-family:'Poppins',sans-serif;transition:all 0.2s;text-align:left;
+}
+.locate-btn:hover{background:var(--blue-l)}
+.location-detected{font-size:11px;color:var(--green-d);font-weight:700;background:var(--green-l);padding:6px 10px;border-radius:8px}
+.delivery-unavail{font-size:12px;color:var(--red-d);font-weight:700;background:var(--red-l);padding:10px 12px;border-radius:10px;border:1px solid rgba(226,75,74,0.3)}
+
+/* ===================================================
+   ✅ TOKEN CONFIRMATION POPUP
+=================================================== */
+.token-confirm-card{
+  background:#fff;border-radius:28px;padding:36px 28px;text-align:center;
+  max-width:320px;width:90%;
+  box-shadow:0 30px 80px rgba(0,0,0,0.35);
+  animation:token-bounce 0.5s cubic-bezier(0.34,1.56,0.64,1);
+}
+.token-confirm-icon{font-size:56px;margin-bottom:10px;display:block;animation:spin-once 0.8s ease}
+.token-confirm-title{font-size:22px;font-weight:800;color:var(--text);margin-bottom:8px}
+.token-number-big{
+  font-family:'Baloo 2',sans-serif;font-size:72px;font-weight:800;
+  color:var(--brand);line-height:1;margin:8px 0;
+  text-shadow:0 4px 20px rgba(45,27,94,0.2);
+  animation:pulse-token 1s ease-in-out 2;
+}
+@keyframes pulse-token{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+.token-confirm-sub{font-size:13px;color:var(--muted);margin-bottom:10px}
+.token-confirm-mode{font-size:14px;font-weight:700;color:var(--brand);background:var(--brand-l);padding:7px 18px;border-radius:20px;display:inline-block;margin-bottom:8px}
+.token-confirm-total{font-size:20px;font-weight:800;color:var(--green-d);margin-bottom:16px}
+.token-confirm-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;text-align:left}
+.tc-step{font-size:12px;font-weight:600;color:var(--muted);padding:6px 10px;border-radius:8px;background:var(--surface)}
+.tc-step.done{color:var(--green-d);background:var(--green-l)}
+
+/* ===================================================
+   ORDER STATUS TRACKING (Customer queue panel)
+=================================================== */
+.order-status-track{
+  display:flex;align-items:center;margin:10px 0;overflow-x:auto;
+  padding:4px 0;
+}
+.status-step{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:64px}
+.status-dot{
+  width:20px;height:20px;border-radius:50%;
+  background:#e0e0e0;border:2.5px solid #ccc;transition:all 0.3s;flex-shrink:0;
+}
+.status-step.status-step-done .status-dot{background:var(--green);border-color:var(--green-d);box-shadow:0 0 0 3px rgba(99,153,34,0.2)}
+.status-step-label{font-size:9px;font-weight:700;color:var(--muted);text-align:center;white-space:nowrap}
+.status-step.status-step-done .status-step-label{color:var(--green-d)}
+.status-line{flex:1;height:2.5px;background:#e0e0e0;min-width:16px;border-radius:2px;margin-bottom:14px}
+
+/* Status badge additions */
+.status-pending{background:var(--amber-l);color:var(--amber-d)}
+.status-done{background:var(--purple-l);color:var(--purple-d)}
+
+/* ===================================================
+   ADMIN SEARCH BAR
+=================================================== */
+.admin-search-bar{
+  display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;
+}
+
+/* ===================================================
+   ORDER STATUS LEGEND
+=================================================== */
+.order-status-legend{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;
+}
+.legend-item{
+  font-size:10px;font-weight:700;padding:3px 10px;border-radius:10px;
+}
+.legend-pending{background:var(--amber-l);color:var(--amber-d)}
+.legend-preparing{background:var(--panipuri-l);color:var(--panipuri-d)}
+.legend-ready{background:var(--green-l);color:var(--green-d)}
+.legend-done{background:var(--purple-l);color:var(--purple-d)}
+
+/* ===================================================
+   CONTACT MANAGEMENT (Admin Marketing)
+=================================================== */
+.contact-mgmt-row{
+  display:flex;align-items:center;gap:12px;padding:12px 0;
+  border-bottom:1px solid var(--border);flex-wrap:wrap;
+}
+.contact-mgmt-row:last-child{border-bottom:none}
+.cmr-info{flex:1;min-width:120px}
+.cmr-label{font-size:13px;font-weight:700;color:var(--text)}
+.cmr-number{font-size:16px;font-weight:800;color:var(--admin)}
+.wa-badge{background:rgba(37,211,102,0.15);border:1px solid rgba(37,211,102,0.3);color:#128c7e;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px}
+.contact-status-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px}
+.contact-active{background:var(--green-l);color:var(--green-d)}
+.contact-inactive{background:var(--surface);color:var(--muted)}
+
+/* Store info */
+.store-info-grid{display:flex;flex-direction:column;gap:10px}
+.store-info-row{display:flex;align-items:flex-start;gap:10px;font-size:13px;font-weight:600;color:var(--text)}
+
+/* ===================================================
+   GUEST ORDER MODAL special styling
+=================================================== */
+#guest-order-modal .modal-card{
+  border-top:4px solid var(--brand);
+}
+
+/* ===================================================
+   RESPONSIVE ADDITIONS
+=================================================== */
+@media(max-width:700px){
+  .order-mode-btns{flex-direction:column}
+  .token-number-big{font-size:56px}
+  .order-status-track{gap:0}
+}
