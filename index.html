@@ -265,7 +265,8 @@
     </div>
 
     <div class="auth-error" id="a-auth-error"></div>
-    <div class="admin-hint">Default: username <b>admin</b> / password <b>sv@admin</b></div>
+    <!-- ✅ FIX: Password NOT shown in hint (security fix per instructions) -->
+    <div class="admin-hint">Default username: <b>admin</b></div>
   </div>
 </div>
 
@@ -289,9 +290,7 @@
       </div>
     </div>
     <div class="offer-banner-container" id="cust-offer-banner"></div>
-    <!-- Live offer timers bar -->
     <div class="live-offer-bar" id="live-offer-bar" style="display:none"></div>
-    <!-- ALL offer timers container -->
     <div id="all-offer-timers"></div>
   </div>
 
@@ -434,33 +433,32 @@
 <script src="script.js"></script>
 
 <!-- =============================================
-     FIREBASE PATCH — Replace the existing <script type="module"> block
-     in index.html with this one.
-     KEY CHANGE: calls window._onFirebaseReady() after init
+     FIREBASE MODULE — Correct v12 SDK with _onFirebaseReady hook
 ============================================== -->
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
-  import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics.js";
   import {
     getFirestore, collection, addDoc, onSnapshot, getDocs,
     doc, updateDoc, deleteDoc, setDoc, getDoc,
     query, orderBy, limit, serverTimestamp
-  } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   const firebaseConfig = {
-    apiKey: "AIzaSyBMI_SFhzXhieNaWUaTIK_hjBBB6L1aSYk",
-    authDomain: "sv-chat-center.firebaseapp.com",
-    projectId: "sv-chat-center",
-    storageBucket: "sv-chat-center.firebasestorage.app",
+    apiKey:            "AIzaSyBMI_SFhzXhieNaWUaTIK_hjBBB6L1aSYk",
+    authDomain:        "sv-chat-center.firebaseapp.com",
+    projectId:         "sv-chat-center",
+    storageBucket:     "sv-chat-center.firebasestorage.app",
     messagingSenderId: "238279356040",
-    appId: "1:238279356040:web:0fc355a548226bc723b93d",
-    measurementId: "G-BEN0V1YEE9"
+    appId:             "1:238279356040:web:0fc355a548226bc723b93d",
+    measurementId:     "G-BEN0V1YEE9"
   };
 
-  const app = initializeApp(firebaseConfig);
-  const db  = getFirestore(app);
-  const analytics = getAnalytics(app);
+  const app        = initializeApp(firebaseConfig);
+  const db         = getFirestore(app);
+  const analytics  = getAnalytics(app);
 
+  // Expose to global scope for script.js
   window.db        = db;
   window.analytics = analytics;
   window.logEvent  = logEvent;
@@ -470,14 +468,20 @@
     query, orderBy, limit, serverTimestamp
   };
 
+  // Update status indicator
   const statusEl = document.getElementById("firebase-status");
-  if(statusEl){ statusEl.textContent = "🟢 Live"; statusEl.style.color = "#27ae60"; }
+  if (statusEl) {
+    statusEl.textContent = "🟢 Live";
+    statusEl.style.color = "#27ae60";
+  }
 
   console.log("🔥 Firebase Connected — SV Chat Center v8");
 
-  // ✅ KEY FIX: Call _onFirebaseReady to fetch customers + orders on load
+  // ✅ KEY FIX: Slight delay so script.js finishes loading first
   setTimeout(() => {
-    if(typeof window._onFirebaseReady === "function") window._onFirebaseReady();
+    if (typeof window._onFirebaseReady === "function") {
+      window._onFirebaseReady();
+    }
   }, 1500);
 </script>
 </body>
