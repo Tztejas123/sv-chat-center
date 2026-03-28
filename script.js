@@ -1,5 +1,6 @@
 // ===================================================
 //   SV CHAT CENTER v8 — script.js
+//   ✅ FIXED: Cross-device login via Firebase
 //   ✅ UPI Payment Modal (tztejaszombade@oksbi)
 //   ✅ Dynamic Categories in Add-Item dropdown
 //   ✅ Customer: Order Online / Come to Store
@@ -378,7 +379,8 @@ async function saveCustomerFullToFirebase(cust) {
       id:           cust.id,
       name:         cust.name,
       phone:        cust.phone,
-      email:        cust.email       || "",
+      email:        cust.email.toLowerCase() || "",
+      password:     cust.password || "",
       loyaltyPoints:cust.loyaltyPoints|| 0,
       totalSpent:   cust.totalSpent  || 0,
       visits:       cust.visits      || 0,
@@ -433,13 +435,34 @@ function createParticles() {
 // ===================================================
 function generateOTP() { return Math.floor(100000+Math.random()*900000).toString(); }
 
-function sendCustomerOTP() {
-  const email = document.getElementById("c-forgot-email").value.trim();
+// ✅ FIXED: sendCustomerOTP also checks Firebase
+async function sendCustomerOTP() {
+  const email = document.getElementById("c-forgot-email").value.trim().toLowerCase();
   if (!email.includes("@")) return setAuthError("customer","Enter valid email");
-  const cust = Object.values(customers).find(c => c.email===email);
+
+  // Check local first
+  let cust = Object.values(customers).find(c => c.email && c.email.toLowerCase() === email);
+
+  // If not found locally, check Firebase
+  if (!cust && isFirebaseReady()) {
+    try {
+      const { getDocs, collection } = firebaseAPI;
+      const snap = await getDocs(collection(db, "customers"));
+      snap.forEach(docSnap => {
+        const d = docSnap.data();
+        if (d.email && d.email.toLowerCase() === email) {
+          cust = d;
+          customers[d.id || d.phone] = d;
+          save();
+        }
+      });
+    } catch(e) { console.error("OTP fetch error:", e); }
+  }
+
   if (!cust) return setAuthError("customer","No account found with this email");
+
   const otp = generateOTP();
-  otpStore[email] = { otp, expiry:Date.now()+600000, role:"customer", userId:cust.id };
+  otpStore[email] = { otp, expiry:Date.now()+600000, role:"customer", userId:cust.id||cust.phone };
   console.log(`📧 OTP for ${email}: ${otp}`);
   showNotif(`📧 OTP sent! (Demo: check console) Code: ${otp}`,6000);
   document.getElementById("c-otp-sent-to").textContent = `OTP sent to ${email.replace(/(.{2}).*(@.*)/,"$1***$2")}`;
@@ -493,7 +516,7 @@ function getOTPValue(boxesId) {
 }
 
 function verifyCustomerOTP() {
-  const email  = document.getElementById("c-forgot-email").value.trim();
+  const email  = document.getElementById("c-forgot-email").value.trim().toLowerCase();
   const entered = getOTPValue("c-otp-boxes");
   const record  = otpStore[email];
   if (!record)                  return setAuthError("customer","Please request a new OTP");
@@ -516,8 +539,8 @@ function verifyAdminOTP() {
   setAuthError("admin","");
 }
 
-function resetCustomerPassword() {
-  const email   = document.getElementById("c-forgot-email").value.trim();
+async function resetCustomerPassword() {
+  const email   = document.getElementById("c-forgot-email").value.trim().toLowerCase();
   const pass    = document.getElementById("c-new-pass").value;
   const confirm = document.getElementById("c-confirm-pass").value;
   if (pass.length<4)   return setAuthError("customer","Password must be 4+ characters");
@@ -525,7 +548,21 @@ function resetCustomerPassword() {
   const record = otpStore[email];
   if (!record)         return setAuthError("customer","Session expired. Start again");
   const cust = customers[record.userId];
-  if (cust) { cust.password=pass; save(); delete otpStore[email]; showNotif("✅ Password reset! Please login."); switchAuthTab("customer","login"); setAuthError("customer",""); }
+  if (cust) {
+    cust.password=pass;
+    save();
+    // Also update in Firebase
+    if (isFirebaseReady()) {
+      try {
+        const { setDoc, doc } = firebaseAPI;
+        await setDoc(doc(db, "customers", cust.id), { ...cust, password: pass }, { merge: true });
+      } catch(e) { console.error("Firebase password reset error:", e); }
+    }
+    delete otpStore[email];
+    showNotif("✅ Password reset! Please login.");
+    switchAuthTab("customer","login");
+    setAuthError("customer","");
+  }
 }
 
 function resetAdminPassword() {
@@ -565,29 +602,104 @@ function setAuthError(role, msg) {
   if (el) el.textContent = msg;
 }
 
-function customerSignup() {
+// ===================================================
+//   ✅ FIXED: customerSignup — saves to Firebase with password
+// ===================================================
+async function customerSignup() {
   const name  = document.getElementById("c-signup-name").value.trim();
   const phone = document.getElementById("c-signup-phone").value.trim();
-  const email = document.getElementById("c-signup-email").value.trim();
+  const email = document.getElementById("c-signup-email").value.trim().toLowerCase();
   const pass  = document.getElementById("c-signup-pass").value;
+
   if (!name)                return setAuthError("customer","Enter your name");
   if (phone.length!==10)    return setAuthError("customer","Enter valid 10-digit phone");
   if (!email.includes("@")) return setAuthError("customer","Enter valid email");
   if (pass.length<4)        return setAuthError("customer","Password 4+ characters");
-  if (customers[phone])     return setAuthError("customer","Account already exists");
-  customers[phone] = { id:phone,name,phone,email,password:pass,orders:[],totalSpent:0,visits:0,loyaltyPoints:0,joinedAt:Date.now() };
+
+  // Check Firebase first for existing account (cross-device duplicate check)
+  if (isFirebaseReady()) {
+    try {
+      const { getDocs, collection } = firebaseAPI;
+      const snap = await getDocs(collection(db, "customers"));
+      let exists = false;
+      snap.forEach(docSnap => {
+        const d = docSnap.data();
+        if (d.phone === phone || (d.email && d.email.toLowerCase() === email)) {
+          exists = true;
+        }
+      });
+      if (exists) return setAuthError("customer","Account already exists. Please login.");
+    } catch(e) { console.error("Signup duplicate check error:", e); }
+  } else if (customers[phone]) {
+    return setAuthError("customer","Account already exists");
+  }
+
+  const newCust = {
+    id: phone, name, phone,
+    email: email,
+    password: pass,
+    orders: [], totalSpent: 0, visits: 0,
+    loyaltyPoints: 0, joinedAt: Date.now()
+  };
+  customers[phone] = newCust;
   save();
-  saveCustomerFullToFirebase(customers[phone]);
-  showNotif(`✅ Welcome ${name}! 🎉`);
-  loginAsCustomer(customers[phone]);
+
+  // Always save to Firebase on signup so it works cross-device
+  if (isFirebaseReady()) {
+    try {
+      const { setDoc, doc } = firebaseAPI;
+      await setDoc(doc(db, "customers", phone), newCust);
+      showNotif(`✅ Welcome ${name}! Account saved to cloud 🎉`);
+    } catch(e) {
+      console.error("Firebase signup save error:", e);
+      showNotif(`✅ Welcome ${name}! 🎉`);
+    }
+  } else {
+    showNotif(`✅ Welcome ${name}! 🎉`);
+  }
+
+  loginAsCustomer(newCust);
 }
 
-function customerLogin() {
-  const input = document.getElementById("c-login-id").value.trim();
+// ===================================================
+//   ✅ FIXED: customerLogin — checks Firebase if not found locally
+// ===================================================
+async function customerLogin() {
+  const input = document.getElementById("c-login-id").value.trim().toLowerCase();
   const pass  = document.getElementById("c-login-pass").value;
-  const cust  = Object.values(customers).find(c => c.phone===input || c.email===input);
-  if (!cust)                return setAuthError("customer","No account found");
-  if (cust.password!==pass) return setAuthError("customer","Wrong password");
+
+  setAuthError("customer", "🔄 Checking...");
+
+  // 1. Try local storage first (fast path)
+  let cust = Object.values(customers).find(
+    c => c.phone === input || (c.email && c.email.toLowerCase() === input)
+  );
+
+  // 2. If not found locally, fetch from Firebase (cross-device fix)
+  if (!cust && isFirebaseReady()) {
+    try {
+      const { getDocs, collection } = firebaseAPI;
+      const snap = await getDocs(collection(db, "customers"));
+      snap.forEach(docSnap => {
+        const d = docSnap.data();
+        if (d.phone === input || (d.email && d.email.toLowerCase() === input)) {
+          cust = d;
+          // Cache locally so next login is instant on this device
+          customers[d.id || d.phone] = d;
+          save();
+        }
+      });
+    } catch(e) {
+      console.error("Firebase login fetch error:", e);
+      setAuthError("customer", "⚠ Network error. Check connection & try again.");
+      return;
+    }
+  }
+
+  if (!cust) return setAuthError("customer","No account found");
+  if (cust.password !== pass) return setAuthError("customer","Wrong password");
+
+  setAuthError("customer", "");
   loginAsCustomer(cust);
 }
 
@@ -1488,7 +1600,6 @@ function closeLoyaltyPopup() { document.getElementById("loyalty-overlay").classL
 //   ✅ UPI PAYMENT MODAL — tztejaszombade@oksbi
 // ===================================================
 function payUPI(amount) {
-  // If called without amount (e.g. from old code), compute it
   if (!amount || amount <= 0) {
     amount = cartTotal();
   }
@@ -1500,7 +1611,6 @@ function payUPI(amount) {
 }
 
 function showUPIModal(amount) {
-  // Remove existing modal if any
   const existing = document.getElementById("upi-payment-modal");
   if (existing) existing.remove();
 
@@ -1514,33 +1624,24 @@ function showUPIModal(amount) {
 
   modal.innerHTML = `
     <div class="upi-modal-card" onclick="event.stopPropagation()">
-      <!-- Header -->
       <div class="upi-modal-header">
         <div class="upi-modal-title">💳 Pay via UPI</div>
         <div class="upi-modal-amount">₹${amount}</div>
         <div class="upi-modal-payto">Pay to <b>${UPI_CONFIG.name}</b> • SV Chat Center</div>
       </div>
-
-      <!-- QR Code -->
       <div class="upi-qr-wrap">
         <img class="upi-qr-img" src="${qrUrl}" alt="UPI QR Code"
           onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(UPI_CONFIG.upiId)}&margin=10'">
         <div class="upi-qr-label">Scan with any UPI app</div>
       </div>
-
-      <!-- UPI ID copy row -->
       <div class="upi-divider"><span>or pay using UPI ID</span></div>
       <div class="upi-id-box">
         <div class="upi-id-value">${UPI_CONFIG.upiId}</div>
         <button class="upi-copy-btn" onclick="copyUPIId()" id="upi-copy-btn">📋 Copy</button>
       </div>
-
-      <!-- UPI number note -->
       <div class="upi-number-note">
         📱 UPI Number: <b>${UPI_CONFIG.upiNum}</b> &nbsp;|&nbsp; <b>${UPI_CONFIG.name}</b>
       </div>
-
-      <!-- App deep-link buttons -->
       <div class="upi-app-grid">
         <a href="gpay://upi/pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn gpay-btn">
           <span class="upi-app-icon">G</span> Google Pay
@@ -1555,13 +1656,10 @@ function showUPIModal(amount) {
           <span class="upi-app-icon">↗</span> Any UPI App
         </a>
       </div>
-
-      <!-- Action buttons -->
       <button class="upi-paid-btn" onclick="confirmUPIPayment(${amount})">
         ✅ I've Paid ₹${amount}
       </button>
       <button class="upi-cancel-btn" onclick="closeUPIModal()">Cancel</button>
-
       <div class="upi-footer-note">
         After paying, tap "I've Paid" to place your order &amp; get a token
       </div>
@@ -1724,7 +1822,6 @@ function renderAdminDashboard() {
       <div id="fb-test-result"></div>
     </div>`;
 
-  // ✅ UPI Info card for admin dashboard
   const upiCard = `
     <div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
       <div class="a-card-title" style="color:var(--green-d)">💳 UPI Collection Details</div>
@@ -1733,11 +1830,6 @@ function renderAdminDashboard() {
           <div style="font-size:18px;font-weight:800;color:var(--green-d)">${UPI_CONFIG.upiId}</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">📱 ${UPI_CONFIG.upiNum} • ${UPI_CONFIG.name}</div>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-          <a href="https://gpay.app.goo.gl/YourLink" style="background:var(--green);color:#fff;padding:7px 14px;border-radius:10px;font-size:12px;font-weight:700;text-decoration:none">
-            📷 View QR
-          </a>
-        </div>
       </div>
     </div>`;
 
@@ -1745,7 +1837,6 @@ function renderAdminDashboard() {
     <div class="a-section-title">📊 Sales Dashboard</div>
     ${fbStatusPanel}
     ${upiCard}
-
     <div class="a-card" style="background:linear-gradient(135deg,#e8f0fe,#d5e8ff);border-color:var(--admin)">
       <div class="a-card-title">📞 Active Customer Contact Number</div>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1755,7 +1846,6 @@ function renderAdminDashboard() {
         <button class="a-btn" style="margin-left:auto;font-size:12px;padding:6px 14px" onclick="switchAdminTab('marketing')">⚙️ Change Number</button>
       </div>
     </div>
-
     <div class="period-tabs">${periodBtns}</div>
     <div class="a-stat-grid">
       <div class="a-stat-card"><div class="a-stat-label">Revenue</div><div class="a-stat-val green">₹${totalSales.toLocaleString("en-IN")}</div></div>
@@ -2377,7 +2467,6 @@ function renderAdminMarketing(){
       </div>
     </div>
 
-    <!-- ✅ UPI Details card in Marketing tab -->
     <div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
       <div class="a-card-title" style="color:var(--green-d)">💳 UPI Payment Collection</div>
       <div style="display:flex;flex-direction:column;gap:8px">
@@ -2451,6 +2540,10 @@ const style=document.createElement("style");
 style.textContent=`@keyframes confetti-fall{0%{transform:translateY(-20px) rotate(0);opacity:0.7}100%{transform:translateY(120px) rotate(360deg);opacity:0}} @keyframes token-bounce{0%{transform:scale(0) rotate(-10deg)}70%{transform:scale(1.1) rotate(3deg)}100%{transform:scale(1) rotate(0)}}`;
 document.head.appendChild(style);
 
+// ===================================================
+//   ✅ FIREBASE READY — fetches ALL customers from cloud
+//      so login works from any device
+// ===================================================
 window._onFirebaseReady = async function() {
   console.log("🔥 Firebase ready — fetching persisted data...");
   await fetchCustomersFromFirebase();
