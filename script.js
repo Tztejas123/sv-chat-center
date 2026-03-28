@@ -1,5 +1,6 @@
 // ===================================================
 //   SV CHAT CENTER v8 — script.js
+//   ✅ UPI Payment Modal (tztejaszombade@oksbi)
 //   ✅ Dynamic Categories in Add-Item dropdown
 //   ✅ Customer: Order Online / Come to Store
 //   ✅ Delivery Zone (5-10km, ₹300+ order)
@@ -10,6 +11,15 @@
 
 const ADMIN_SECRET_KEY = "sv@secret2024";
 const DEFAULT_ADMIN = { username:"admin", password:"sv@admin", name:"Owner", email:"tejaszombade55@gmail.com" };
+
+// ===================================================
+//   ✅ UPI PAYMENT CONFIG
+// ===================================================
+const UPI_CONFIG = {
+  upiId:   "tztejaszombade@oksbi",
+  upiNum:  "7218021770",
+  name:    "Tejas Zombade",
+};
 
 // ===================================================
 //   STORE LOCATION & DELIVERY CONFIG
@@ -129,11 +139,10 @@ const ADD_MAP   = { chat:"add-chat",panipuri:"add-panipuri",kachori:"add-kachori
 const LABEL_MAP = { chat:"Chat",panipuri:"Panipuri",kachori:"Kachori",wada:"Wada",ice:"Ice Cream",beverages:"Beverages",snacks:"Snacks" };
 const BAR_COLORS= { chat:"#E24B4A",panipuri:"#E8622A",kachori:"#7F77DD",wada:"#EF9F27",ice:"#378ADD",beverages:"#3ABABA",snacks:"#9B59B6" };
 
-// ===== LOYALTY CONFIG =====
 const ORDER_STATUSES = ["Pending","Preparing","Ready","Done"];
 
 // LOYALTY
-const POINTS_PER_RUPEE          = 1;
+const POINTS_PER_RUPEE           = 1;
 const LOYALTY_FIREBASE_THRESHOLD = 500;
 const REWARD_TIERS = [
   { points:100,  reward:"5% off next order",        icon:"🥉" },
@@ -158,10 +167,9 @@ let otpStore={};
 let currentRating=0;
 let adminSearchTerm="";
 let offerTimerIntervals=[];
-// Order mode: "pickup" | "delivery"
 let orderMode = "pickup";
 let customerAddress = "";
-let customerLocation = null; // { lat, lng }
+let customerLocation = null;
 
 // ===================================================
 //   FIREBASE UTILS
@@ -173,9 +181,7 @@ function showLoader(show) {
   const el = document.getElementById("firebase-loader");
   if (el) el.style.display = show ? "block" : "none";
 }
-// ===================================================
-//   FIREBASE — FETCH ON LOAD (fixes customer disappear)
-// ===================================================
+
 async function fetchCustomersFromFirebase() {
   if(!isFirebaseReady()) return;
   try {
@@ -194,7 +200,6 @@ async function fetchCustomersFromFirebase() {
       }
     });
     save();
-    console.log("✅ Customers fetched from Firebase:",Object.keys(customers).length);
   } catch(e){console.error("Fetch customers error:",e);}
 }
 
@@ -212,7 +217,6 @@ async function fetchOrdersFromFirebase() {
     const maxTok=Math.max(...queue.map(o=>o.token||0),orderToken-1);
     if(maxTok>=orderToken) orderToken=maxTok+1;
     save();
-    console.log("✅ Orders fetched:",fbOrders.length);
   } catch(e){console.error("Fetch orders error:",e);}
 }
 
@@ -221,8 +225,6 @@ async function updateOrderStatusInFirebase(docId,status) {
   try { const {updateDoc,doc}=firebaseAPI; await updateDoc(doc(db,"orders",docId),{status}); }
   catch(e){console.error("Update order status:",e);}
 }
-
-
 
 // ===================================================
 //   LOAD / SAVE
@@ -348,7 +350,6 @@ async function saveItemToFirebase(item) {
   } catch(e) { console.error("Firebase item save:", e); }
 }
 
-// Save customer data to Firebase when loyalty >= threshold
 async function saveCustomerToFirebase(cust) {
   if (!isFirebaseReady()) return;
   if ((cust.loyaltyPoints || 0) < LOYALTY_FIREBASE_THRESHOLD) return;
@@ -366,11 +367,9 @@ async function saveCustomerToFirebase(cust) {
       lastUpdated:  Date.now(),
     };
     await setDoc(doc(db, "customers", cust.id), payload);
-    console.log("✅ Customer saved to Firebase:", cust.name);
   } catch(e) { console.error("Firebase customer save:", e); }
 }
 
-// Always save full customer data to Firebase for marketing
 async function saveCustomerFullToFirebase(cust) {
   if (!isFirebaseReady()) return;
   try {
@@ -468,10 +467,10 @@ function sendAdminOTP() {
 
 function startOTPCountdown(prefix) {
   let secs=60;
-  const countEl  = document.getElementById(`${prefix}-otp-countdown`);
-  const timerEl  = document.getElementById(`${prefix}-otp-timer`);
+  const countEl   = document.getElementById(`${prefix}-otp-countdown`);
+  const timerEl   = document.getElementById(`${prefix}-otp-timer`);
   const resendBtn = document.getElementById(`${prefix}-resend-btn`);
-  const interval = setInterval(() => {
+  const interval  = setInterval(() => {
     secs--;
     if (countEl)   countEl.textContent = secs;
     if (secs <= 0) {
@@ -592,10 +591,6 @@ function customerLogin() {
   loginAsCustomer(cust);
 }
 
-
-// ===================================================
-//   GUEST ORDER MODAL — Force login before ordering
-// ===================================================
 function showGuestOrderModal() {
   const existing=document.getElementById("guest-order-modal");
   if(existing){existing.classList.add("show");return;}
@@ -626,9 +621,6 @@ function showGuestOrderModal() {
   document.body.appendChild(el);
 }
 
-// ===================================================
-//   TOKEN CONFIRMATION POPUP
-// ===================================================
 function showTokenConfirmation(token, total, mode) {
   const existing=document.getElementById("token-confirm-overlay");
   if(existing) existing.remove();
@@ -657,7 +649,6 @@ function showTokenConfirmation(token, total, mode) {
 }
 
 function customerGuestLogin() {
-  // Guest can browse but not order
   currentUser = { type:"customer", id:"guest", name:"Guest" };
   launchCustomerApp();
 }
@@ -755,7 +746,7 @@ function launchCustomerApp() {
 }
 
 // ===================================================
-//   CONTACT BAR — show active admin phone on customer UI
+//   CONTACT BAR
 // ===================================================
 function getActiveContact() {
   return adminContactNumbers.find(n => n.active) || adminContactNumbers[0];
@@ -804,8 +795,8 @@ function renderOrderModePanel() {
           <small>${deliveryAvailable ? `₹${DELIVERY_CHARGE} • 5-10 km radius` : `Min ₹${DELIVERY_MIN_ORDER} order`}</small>
         </button>
       </div>
-      ${orderMode==="pickup"    ? renderPickupInfo()    : ""}
-      ${orderMode==="delivery"  ? renderDeliveryForm()  : ""}
+      ${orderMode==="pickup"   ? renderPickupInfo()   : ""}
+      ${orderMode==="delivery" ? renderDeliveryForm() : ""}
     </div>`;
 }
 
@@ -872,7 +863,7 @@ function calcDistance(lat1, lng1, lat2, lng2) {
 }
 
 // ===================================================
-//   STORE LOCATION MODAL (Customer)
+//   STORE LOCATION MODAL
 // ===================================================
 function showLocationModal() {
   const modal = document.getElementById("location-modal");
@@ -1370,7 +1361,7 @@ function renderCustCartPanel() {
     <div class="total-row"><span class="total-label">Total</span><span class="total-amt">₹${orderTotal}</span></div>
     ${discHTML}
     <button class="order-btn" onclick="placeOrder()">🎟 Place Order &amp; Get Token</button>
-    <button class="upi-btn" onclick="payUPI()">👉 Pay via UPI</button>`;
+    <button class="upi-btn" onclick="payUPI(${orderTotal})">💳 Pay via UPI — ₹${orderTotal}</button>`;
 }
 
 function renderCustQueuePanel() {
@@ -1406,7 +1397,6 @@ function switchCustTab(tab) {
 //   PLACE ORDER — Firebase + localStorage
 // ===================================================
 async function placeOrder() {
-  // ✅ Guest guard — must login to place orders
   if(currentUser.id==="guest") {
     showGuestOrderModal();
     return;
@@ -1466,8 +1456,6 @@ async function placeOrder() {
   }
 
   save();
-
-  // ✅ Show token confirmation popup
   showTokenConfirmation(order.token, total, orderMode);
   showNotif(`✅ Token #${order.token} placed! ${orderMode==="delivery"?"🛵 Delivery!":"🏪 Pickup!"}`,3000);
 
@@ -1481,7 +1469,6 @@ async function placeOrder() {
   customerLocation=null;
   renderCustMenu();
   renderCustCartPanel();
-  // Switch to orders tab after 3 seconds
   setTimeout(()=>switchCustTab("queue"),3000);
 }
 
@@ -1497,10 +1484,127 @@ function checkLoyaltyMilestone(totalPoints, earned) {
 
 function closeLoyaltyPopup() { document.getElementById("loyalty-overlay").classList.remove("show"); }
 
-function payUPI() {
-  const total=cartTotal();
-  if(total===0){showNotif("⚠ Cart is empty!");return;}
-  window.open(`upi://pay?pa=yourupi@upi&pn=SVChatCenter&am=${total}&cu=INR`);
+// ===================================================
+//   ✅ UPI PAYMENT MODAL — tztejaszombade@oksbi
+// ===================================================
+function payUPI(amount) {
+  // If called without amount (e.g. from old code), compute it
+  if (!amount || amount <= 0) {
+    amount = cartTotal();
+  }
+  if (amount <= 0) {
+    showNotif("⚠ Cart is empty!");
+    return;
+  }
+  showUPIModal(amount);
+}
+
+function showUPIModal(amount) {
+  // Remove existing modal if any
+  const existing = document.getElementById("upi-payment-modal");
+  if (existing) existing.remove();
+
+  const upiString = `upi://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR&tn=${encodeURIComponent("SV Chat Center Order")}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiString)}&color=1a0a2e&bgcolor=ffffff&margin=10`;
+
+  const modal = document.createElement("div");
+  modal.id = "upi-payment-modal";
+  modal.className = "modal-overlay show";
+  modal.onclick = (e) => { if (e.target === modal) closeUPIModal(); };
+
+  modal.innerHTML = `
+    <div class="upi-modal-card" onclick="event.stopPropagation()">
+      <!-- Header -->
+      <div class="upi-modal-header">
+        <div class="upi-modal-title">💳 Pay via UPI</div>
+        <div class="upi-modal-amount">₹${amount}</div>
+        <div class="upi-modal-payto">Pay to <b>${UPI_CONFIG.name}</b> • SV Chat Center</div>
+      </div>
+
+      <!-- QR Code -->
+      <div class="upi-qr-wrap">
+        <img class="upi-qr-img" src="${qrUrl}" alt="UPI QR Code"
+          onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(UPI_CONFIG.upiId)}&margin=10'">
+        <div class="upi-qr-label">Scan with any UPI app</div>
+      </div>
+
+      <!-- UPI ID copy row -->
+      <div class="upi-divider"><span>or pay using UPI ID</span></div>
+      <div class="upi-id-box">
+        <div class="upi-id-value">${UPI_CONFIG.upiId}</div>
+        <button class="upi-copy-btn" onclick="copyUPIId()" id="upi-copy-btn">📋 Copy</button>
+      </div>
+
+      <!-- UPI number note -->
+      <div class="upi-number-note">
+        📱 UPI Number: <b>${UPI_CONFIG.upiNum}</b> &nbsp;|&nbsp; <b>${UPI_CONFIG.name}</b>
+      </div>
+
+      <!-- App deep-link buttons -->
+      <div class="upi-app-grid">
+        <a href="gpay://upi/pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn gpay-btn">
+          <span class="upi-app-icon">G</span> Google Pay
+        </a>
+        <a href="phonepe://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn phonepe-btn">
+          <span class="upi-app-icon">P</span> PhonePe
+        </a>
+        <a href="paytmmp://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn paytm-btn">
+          <span class="upi-app-icon">₿</span> Paytm
+        </a>
+        <a href="${upiString}" class="upi-app-btn any-upi-btn">
+          <span class="upi-app-icon">↗</span> Any UPI App
+        </a>
+      </div>
+
+      <!-- Action buttons -->
+      <button class="upi-paid-btn" onclick="confirmUPIPayment(${amount})">
+        ✅ I've Paid ₹${amount}
+      </button>
+      <button class="upi-cancel-btn" onclick="closeUPIModal()">Cancel</button>
+
+      <div class="upi-footer-note">
+        After paying, tap "I've Paid" to place your order &amp; get a token
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+}
+
+function closeUPIModal() {
+  const modal = document.getElementById("upi-payment-modal");
+  if (modal) modal.remove();
+}
+
+function copyUPIId() {
+  const upiId = UPI_CONFIG.upiId;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(upiId).then(() => {
+      const btn = document.getElementById("upi-copy-btn");
+      if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy"; }, 2000); }
+      showNotif("✅ UPI ID copied: " + upiId);
+    }).catch(() => fallbackCopy(upiId));
+  } else {
+    fallbackCopy(upiId);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;top:-9999px;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+  showNotif("✅ UPI ID copied: " + text);
+  const btn = document.getElementById("upi-copy-btn");
+  if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy"; }, 2000); }
+}
+
+function confirmUPIPayment(amount) {
+  closeUPIModal();
+  showNotif("💳 UPI Payment confirmed! Placing your order...", 2000);
+  setTimeout(() => placeOrder(), 500);
 }
 
 // ===================================================
@@ -1620,9 +1724,27 @@ function renderAdminDashboard() {
       <div id="fb-test-result"></div>
     </div>`;
 
+  // ✅ UPI Info card for admin dashboard
+  const upiCard = `
+    <div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
+      <div class="a-card-title" style="color:var(--green-d)">💳 UPI Collection Details</div>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:18px;font-weight:800;color:var(--green-d)">${UPI_CONFIG.upiId}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">📱 ${UPI_CONFIG.upiNum} • ${UPI_CONFIG.name}</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+          <a href="https://gpay.app.goo.gl/YourLink" style="background:var(--green);color:#fff;padding:7px 14px;border-radius:10px;font-size:12px;font-weight:700;text-decoration:none">
+            📷 View QR
+          </a>
+        </div>
+      </div>
+    </div>`;
+
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">📊 Sales Dashboard</div>
     ${fbStatusPanel}
+    ${upiCard}
 
     <div class="a-card" style="background:linear-gradient(135deg,#e8f0fe,#d5e8ff);border-color:var(--admin)">
       <div class="a-card-title">📞 Active Customer Contact Number</div>
@@ -1707,17 +1829,9 @@ function renderSteps(steps,el) {
 }
 
 // ===================================================
-//   ADMIN MENU — FIXED Dynamic category dropdown
+//   ADMIN MENU
 // ===================================================
-
-/**
- * ✅ FIXED: getAllCatOptions()
- * Returns <option> elements for all categories (base + custom) in the Add Item dropdown,
- * with a "+ Add New Category" option at the bottom.
- * No duplicate optgroup, no broken logic.
- */
 function getAllCatOptions(selectedCat) {
-  // Base categories (excluding "all")
   const baseCats = [
     { id:"chat",      label:"🥗 Chat"       },
     { id:"panipuri",  label:"🫧 Panipuri"   },
@@ -1732,7 +1846,6 @@ function getAllCatOptions(selectedCat) {
     `<option value="${c.id}"${selectedCat===c.id?" selected":""}>${c.label}</option>`
   ).join("");
 
-  // Custom categories (if any)
   if (customCategories.length > 0) {
     html += `<optgroup label="── Custom ──">`;
     html += customCategories.map(c =>
@@ -1741,15 +1854,12 @@ function getAllCatOptions(selectedCat) {
     html += `</optgroup>`;
   }
 
-  // Always show "+ Add New Category" at bottom
   html += `<option value="__new" style="color:#e74c3c;font-weight:700">➕ + Add New Category</option>`;
-
   return html;
 }
 
 function handleCatDropdownChange(selectEl) {
   if (selectEl.value === "__new") {
-    // Reset to first valid option before opening prompt
     selectEl.value = "chat";
     promptAddCategory();
   }
@@ -1785,8 +1895,6 @@ function renderAdminMenu() {
 
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">🍽 Menu Management</div>
-
-    <!-- CUSTOM CATEGORY MANAGER -->
     <div class="a-card">
       <div class="a-card-title">📂 Custom Categories (${customCategories.length} added)</div>
       ${customCategories.length>0
@@ -1799,12 +1907,10 @@ function renderAdminMenu() {
       }
       <button class="a-btn" style="margin-top:10px;font-size:12px;padding:7px 16px" onclick="promptAddCategory()">➕ Add New Category</button>
     </div>
-
     <div class="a-card">
       <div class="a-card-title">Current Menu (${ITEMS.length} items)</div>
       ${rows}
     </div>
-
     <div class="a-card">
       <div class="a-card-title">➕ Add New Item</div>
       <div class="add-item-form">
@@ -1822,7 +1928,6 @@ function renderAdminMenu() {
         ${isFirebaseReady()?`<button class="a-btn" onclick="syncMenuToFirebase()" style="background:linear-gradient(135deg,#FF6B35,#e55a20)">🔥 Sync All to Firebase</button>`:""}
       </div>
     </div>
-
     <div class="a-card">
       <div class="a-card-title">🔥 Combo Management</div>
       ${renderComboRows()}
@@ -1897,14 +2002,12 @@ function addNewItem(){
   const price  = parseInt(document.getElementById("new-price").value);
   const emoji  = document.getElementById("new-emoji").value.trim()||"🍽";
   const catSel = document.getElementById("new-cat");
-  // Guard: if somehow __new slips through, default to chat
   const cat    = (!catSel||catSel.value==="__new") ? "chat" : catSel.value;
   const label  = document.getElementById("new-label")?.value||"none";
   const imgUrl = document.getElementById("new-imgurl")?.value.trim()||null;
   if(!name)           return showNotif("⚠ Enter item name");
   if(!price||price<1) return showNotif("⚠ Enter valid price");
 
-  // Resolve metadata for this category
   const customCat = customCategories.find(c=>c.id===cat);
   const id        = "i"+Date.now();
   const newItem   = {
@@ -1920,7 +2023,7 @@ function addNewItem(){
   save();
   if(isFirebaseReady())saveItemToFirebase(newItem);
   renderAdminMenu();
-  showNotif(`✅ ${name} added to "${newItem.tagLabel}"!${isFirebaseReady()?" 🔥 Firebase!":""}`);
+  showNotif(`✅ ${name} added!${isFirebaseReady()?" 🔥 Firebase!":""}`);
 }
 
 function saveComboPrice(id){const val=parseInt(document.getElementById(`combo-price-${id}`)?.value);const c=combos.find(x=>x.id===id);if(c&&val>0){c.price=val;save();showNotif("Combo price updated!");}}
@@ -2060,7 +2163,7 @@ function toggleOffer(id){const o=offers.find(x=>x.id===id);if(o){o.active=!o.act
 function deleteOffer(id){offers=offers.filter(x=>x.id!==id);save();renderAdminOffers();renderAllOfferTimers();showNotif("Offer deleted");}
 
 // ===================================================
-//   ADMIN CUSTOMERS — with email/phone + Firebase save
+//   ADMIN CUSTOMERS
 // ===================================================
 function renderAdminCustomers(){
   const custs=Object.values(customers);
@@ -2118,7 +2221,7 @@ function createPersonalOfferForCustomer(custId){
 }
 
 // ===================================================
-//   ADMIN ORDERS — realtime via Firebase
+//   ADMIN ORDERS
 // ===================================================
 function renderAdminOrders(){
   const rows=queue.length===0
@@ -2138,9 +2241,9 @@ function renderAdminOrders(){
             ${o.phone?`<div class="order-phone">${o.phone}</div>`:""}
           </div>
           <select class="a-select" style="width:110px;font-size:11px;padding:5px 8px"
-          onchange="updateOrderStatusAdmin(${i},this.value)">
-          ${ORDER_STATUSES.map(s=>`<option value="${s}"${(o.status||"Pending")===s?" selected":""}>${s}</option>`).join("")}
-        </select>
+            onchange="updateOrderStatusAdmin(${i},this.value)">
+            ${ORDER_STATUSES.map(s=>`<option value="${s}"${(o.status||"Pending")===s?" selected":""}>${s}</option>`).join("")}
+          </select>
           <button class="del-btn" onclick="adminRemoveOrder(${i})">✕</button>
         </div>`).join("");
   document.getElementById("admin-content").innerHTML=`
@@ -2148,7 +2251,6 @@ function renderAdminOrders(){
     <div class="a-card">${rows}</div>`;
 }
 
-function adminMarkReady(i){if(queue[i]){queue[i].status="Ready";save();renderAdminOrders();showNotif(`🔔 Token #${queue[i].token} is Ready!`);}}
 function updateOrderStatusAdmin(idx, status) {
   if(!queue[idx]) return;
   queue[idx].status=status;
@@ -2159,7 +2261,7 @@ function updateOrderStatusAdmin(idx, status) {
 function adminRemoveOrder(i){queue.splice(i,1);save();renderAdminOrders();}
 
 // ===================================================
-//   ADMIN ANALYTICS — Daily / Weekly / Monthly
+//   ADMIN ANALYTICS
 // ===================================================
 function renderAdminAnalytics(){
   const tabs=["today","week","month"].map(p=>
@@ -2238,7 +2340,7 @@ function renderAdminAnalytics(){
 }
 
 // ===================================================
-//   ADMIN MARKETING — Contact Number Manager
+//   ADMIN MARKETING
 // ===================================================
 function renderAdminMarketing(){
   const contactRows=adminContactNumbers.map((n,i)=>`
@@ -2258,10 +2360,9 @@ function renderAdminMarketing(){
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">📣 Marketing & Contact Settings</div>
 
-    <!-- CONTACT NUMBER MANAGER -->
     <div class="a-card" style="border:2px solid var(--admin)">
       <div class="a-card-title" style="font-size:14px;font-weight:800;color:var(--admin)">📞 Customer Contact Number Manager</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">The <b>active</b> number is shown on the customer ordering screen. Customers can call or WhatsApp this number directly.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">The <b>active</b> number is shown on the customer ordering screen.</div>
       ${contactRows}
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
         <div class="a-card-title">➕ Add Contact Number</div>
@@ -2276,7 +2377,25 @@ function renderAdminMarketing(){
       </div>
     </div>
 
-    <!-- STORE LOCATION -->
+    <!-- ✅ UPI Details card in Marketing tab -->
+    <div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
+      <div class="a-card-title" style="color:var(--green-d)">💳 UPI Payment Collection</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">
+          🏦 UPI ID: <b style="color:var(--green-d)">${UPI_CONFIG.upiId}</b>
+        </div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">
+          📱 UPI Number: <b style="color:var(--admin)">${UPI_CONFIG.upiNum}</b>
+        </div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">
+          👤 Account Name: <b>${UPI_CONFIG.name}</b>
+        </div>
+        <div style="font-size:12px;color:var(--muted);background:rgba(99,153,34,0.08);padding:8px 12px;border-radius:8px;margin-top:4px">
+          ✅ Customers will see this UPI ID and QR code when they click "Pay via UPI"
+        </div>
+      </div>
+    </div>
+
     <div class="a-card">
       <div class="a-card-title">📍 Store Location & Delivery Zone</div>
       <div class="store-info-grid">
@@ -2286,18 +2405,11 @@ function renderAdminMarketing(){
       <a href="${STORE_LOCATION.mapUrl}" target="_blank" class="map-link-btn" style="display:inline-block;margin-top:10px">🗺️ View Store on Google Maps</a>
     </div>
 
-    <!-- MARKETING TIPS -->
     <div class="marketing-card">
       <div class="marketing-card-title">🔥 Firebase Deployment Guide <span class="roi-badge">Go Live</span></div>
       <div class="marketing-tip"><div class="marketing-tip-icon">1️⃣</div><b>Firebase Hosting:</b> Run <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">firebase deploy</code> → Free URL at sv-chat-center.web.app</div>
-      <div class="marketing-tip"><div class="marketing-tip-icon">2️⃣</div><b>Customer Data:</b> All customer emails & phones are saved to Firestore automatically — use for personalized offers & marketing!</div>
+      <div class="marketing-tip"><div class="marketing-tip-icon">2️⃣</div><b>Customer Data:</b> All customer emails & phones are saved to Firestore automatically.</div>
       <div class="marketing-tip"><div class="marketing-tip-icon">3️⃣</div><b>Share:</b> WhatsApp your app URL to customers with your active contact number shown on screen.</div>
-    </div>
-    <div class="marketing-card">
-      <div class="marketing-card-title">📊 Analytics Insight <span class="roi-badge">Data-Driven</span></div>
-      <div class="marketing-tip"><div class="marketing-tip-icon">📅</div><b>Daily:</b> Check today's bestsellers every evening. Double down on what's selling.</div>
-      <div class="marketing-tip"><div class="marketing-tip-icon">📈</div><b>Weekly:</b> Identify your busiest day — run flash sales on slow days to boost sales.</div>
-      <div class="marketing-tip"><div class="marketing-tip-icon">📆</div><b>Monthly:</b> Review category trends — which category grew? Which needs a new item?</div>
     </div>`;
 }
 
@@ -2306,7 +2418,7 @@ function setActiveContact(id){
   save();
   renderAdminMarketing();
   renderContactBar();
-  showNotif("✅ Active contact number updated! Customers will now see this number.");
+  showNotif("✅ Active contact number updated!");
 }
 
 function deleteContact(id){
@@ -2335,12 +2447,10 @@ showScreen("screen-landing");
 setInterval(renderOfferBanner, 60000);
 setInterval(renderAllOfferTimers, 30000);
 
-// CSS for confetti + token animations
 const style=document.createElement("style");
 style.textContent=`@keyframes confetti-fall{0%{transform:translateY(-20px) rotate(0);opacity:0.7}100%{transform:translateY(120px) rotate(360deg);opacity:0}} @keyframes token-bounce{0%{transform:scale(0) rotate(-10deg)}70%{transform:scale(1.1) rotate(3deg)}100%{transform:scale(1) rotate(0)}}`;
 document.head.appendChild(style);
 
-// ✅ Called by Firebase module after init to fetch persisted data
 window._onFirebaseReady = async function() {
   console.log("🔥 Firebase ready — fetching persisted data...");
   await fetchCustomersFromFirebase();

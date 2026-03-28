@@ -7,8 +7,34 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+
+  <!-- ✅ FAVICON — SVG logo in browser tab -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%231a0a2e' stroke='%23FF6B35' stroke-width='3'/><path d='M22 52 Q22 72 50 74 Q78 72 78 52' fill='none' stroke='%23FF6B35' stroke-width='1.5' opacity='0.8'/><path d='M36 40 Q33 30 36 20' fill='none' stroke='%23F7C59F' stroke-width='1.5' stroke-linecap='round' opacity='0.7'/><path d='M50 38 Q47 28 50 18' fill='none' stroke='%23F7C59F' stroke-width='1.5' stroke-linecap='round' opacity='0.7'/><path d='M64 40 Q61 30 64 20' fill='none' stroke='%23F7C59F' stroke-width='1.5' stroke-linecap='round' opacity='0.7'/><text x='50' y='65' text-anchor='middle' font-family='Georgia,serif' font-weight='700' font-size='26' fill='%23FF6B35'>SV</text></svg>">
 </head>
 <body>
+
+<!-- =============================================
+     ✅ REUSABLE SVG LOGO SYMBOL
+     (hidden — referenced by <use href="#sv-logo"> everywhere)
+============================================== -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="sv-logo" viewBox="0 0 100 100">
+    <!-- Dark background circle -->
+    <circle cx="50" cy="50" r="48" fill="#1a0a2e" stroke="#FF6B35" stroke-width="2.5"/>
+    <!-- Inner accent ring -->
+    <circle cx="50" cy="50" r="42" fill="none" stroke="#FF6B35" stroke-width="0.6" opacity="0.3"/>
+    <!-- Bowl / chat dish shape -->
+    <path d="M22 52 Q22 72 50 74 Q78 72 78 52" fill="none" stroke="#FF6B35" stroke-width="1.5" opacity="0.7"/>
+    <ellipse cx="50" cy="70" rx="22" ry="5" fill="#FF6B35" opacity="0.12"/>
+    <!-- Steam wisps -->
+    <path d="M36 40 Q33 30 36 20" fill="none" stroke="#F7C59F" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+    <path d="M50 38 Q47 28 50 18" fill="none" stroke="#F7C59F" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+    <path d="M64 40 Q61 30 64 20" fill="none" stroke="#F7C59F" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+    <!-- SV text -->
+    <text x="50" y="60" text-anchor="middle" dominant-baseline="central"
+      font-family="Georgia,serif" font-weight="700" font-size="26" fill="#FF6B35">SV</text>
+  </symbol>
+</svg>
 
 <!-- =============================================
      SCREEN 1: LANDING / ROLE SELECT
@@ -18,7 +44,10 @@
     <div class="landing-particles" id="landing-particles"></div>
     <div class="landing-content">
       <div class="landing-logo-wrap">
-        <div class="landing-logo">SV</div>
+        <!-- ✅ SVG LOGO replaces old <div class="landing-logo">SV</div> -->
+        <svg class="landing-logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <use href="#sv-logo"/>
+        </svg>
         <div class="landing-glow"></div>
       </div>
       <div class="landing-title">SV Chat Center</div>
@@ -55,7 +84,10 @@
 <div id="screen-customer-auth" class="screen">
   <div class="auth-wrap">
     <button class="back-btn" onclick="showScreen('screen-landing')">← Back</button>
-    <div class="auth-logo">SV</div>
+    <!-- ✅ SVG LOGO replaces old <div class="auth-logo">SV</div> -->
+    <svg class="auth-logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="padding:4px">
+      <use href="#sv-logo"/>
+    </svg>
     <div class="auth-title">Welcome Back!</div>
     <div class="auth-sub">Sign in or create your account</div>
 
@@ -164,6 +196,7 @@
 <div id="screen-admin-auth" class="screen">
   <div class="auth-wrap admin-auth">
     <button class="back-btn" onclick="showScreen('screen-landing')">← Back</button>
+    <!-- Admin keeps the lock emoji logo — intentionally different from customer -->
     <div class="auth-logo admin-logo">🔐</div>
     <div class="auth-title">Admin Portal</div>
     <div class="auth-sub">Authorized access only</div>
@@ -265,7 +298,6 @@
     </div>
 
     <div class="auth-error" id="a-auth-error"></div>
-    <!-- ✅ FIX: Password NOT shown in hint (security fix per instructions) -->
     <div class="admin-hint">Default username: <b>admin</b></div>
   </div>
 </div>
@@ -277,7 +309,10 @@
   <div class="cust-header">
     <div class="cust-header-inner">
       <div class="brand">
-        <div class="logo-circle">SV</div>
+        <!-- ✅ SVG LOGO replaces old <div class="logo-circle">SV</div> -->
+        <svg class="logo-circle" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="padding:3px">
+          <use href="#sv-logo"/>
+        </svg>
         <div>
           <div class="brand-name">SV Chat Center</div>
           <div class="brand-sub">& Ice Cream • Pune</div>
@@ -320,7 +355,10 @@
   <div class="admin-header">
     <div class="admin-header-inner">
       <div class="brand">
-        <div class="logo-circle admin-logo-sm">SV</div>
+        <!-- ✅ SVG LOGO replaces old <div class="logo-circle admin-logo-sm">SV</div> -->
+        <svg class="logo-circle admin-logo-sm" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="padding:3px">
+          <use href="#sv-logo"/>
+        </svg>
         <div>
           <div class="brand-name">Admin Panel</div>
           <div class="brand-sub" id="admin-name-badge">SV Chat Center</div>
@@ -458,7 +496,6 @@
   const db         = getFirestore(app);
   const analytics  = getAnalytics(app);
 
-  // Expose to global scope for script.js
   window.db        = db;
   window.analytics = analytics;
   window.logEvent  = logEvent;
@@ -468,16 +505,14 @@
     query, orderBy, limit, serverTimestamp
   };
 
-  // Update status indicator
   const statusEl = document.getElementById("firebase-status");
   if (statusEl) {
     statusEl.textContent = "🟢 Live";
     statusEl.style.color = "#27ae60";
   }
 
-  console.log("🔥 Firebase Connected — SV Chat Center v8");
+  console.log("🔥 Firebase Connected — SV Chat Center v8 + Logo");
 
-  // ✅ KEY FIX: Slight delay so script.js finishes loading first
   setTimeout(() => {
     if (typeof window._onFirebaseReady === "function") {
       window._onFirebaseReady();
