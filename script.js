@@ -8,18 +8,19 @@
 //   ✅ Admin: Contact Number Selector
 //   ✅ Customer data saved to Firebase
 //   ✅ Enhanced Analytics (Daily/Weekly/Monthly)
+//   ✅ PAYMENTS TAB — Firebase Only (no localStorage)
 // ===================================================
 
 const ADMIN_SECRET_KEY = "sv@secret2024";
 const DEFAULT_ADMIN = { username:"admin", password:"sv@admin", name:"Owner", email:"tejaszombade55@gmail.com" };
 
 // ===================================================
-//   ✅ UPI PAYMENT CONFIG
+//   UPI PAYMENT CONFIG
 // ===================================================
 const UPI_CONFIG = {
-  upiId:   "tztejaszombade@oksbi",
-  upiNum:  "7218021770",
-  name:    "Tejas Zombade",
+  upiId:  "tztejaszombade@oksbi",
+  upiNum: "7218021770",
+  name:   "Tejas Zombade",
 };
 
 // ===================================================
@@ -34,9 +35,9 @@ const STORE_LOCATION = {
   mapUrl:   "https://maps.google.com/?q=JQ2X%2BQ6J,+Pimple+Saudagar,+Pimpri-Chinchwad,+Maharashtra+411027",
   embedUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3783.8!2d73.8077!3d18.5074!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2sSV+Chat+Center!5e0!3m2!1sen!2sin!4v1"
 };
-const DELIVERY_MIN_ORDER  = 300;
-const DELIVERY_RADIUS_KM  = 10;
-const DELIVERY_CHARGE     = 30;
+const DELIVERY_MIN_ORDER = 300;
+const DELIVERY_RADIUS_KM = 10;
+const DELIVERY_CHARGE    = 30;
 
 // ===================================================
 //   ADMIN CONTACT NUMBERS CONFIG
@@ -173,6 +174,13 @@ let customerAddress = "";
 let customerLocation = null;
 
 // ===================================================
+//   PAYMENT RECORDS STATE — FIREBASE ONLY
+//   No localStorage. In-memory only until Firebase loads.
+// ===================================================
+let paymentRecords = [];
+let paymentRecordsLoaded = false;
+
+// ===================================================
 //   FIREBASE UTILS
 // ===================================================
 function isFirebaseReady() {
@@ -228,7 +236,73 @@ async function updateOrderStatusInFirebase(docId,status) {
 }
 
 // ===================================================
-//   LOAD / SAVE
+//   PAYMENT RECORDS — FIREBASE ONLY FUNCTIONS
+// ===================================================
+function getTodayKey() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function getDateKey(timestamp) {
+  return new Date(timestamp).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function getPaymentSummary(dateKey) {
+  const recs    = paymentRecords.filter(r => getDateKey(r.time) === dateKey);
+  const online  = recs.filter(r => r.mode === "online").reduce((s, r) => s + r.amount, 0);
+  const offline = recs.filter(r => r.mode === "offline").reduce((s, r) => s + r.amount, 0);
+  return { online, offline, total: online + offline, count: recs.length, recs };
+}
+
+async function loadPaymentRecordsFromFirebase() {
+  if (!isFirebaseReady()) {
+    console.warn("⚠ Firebase not ready — payment records not loaded");
+    return;
+  }
+  try {
+    const { getDocs, collection, query, orderBy } = firebaseAPI;
+    const q    = query(collection(db, "payment_records"), orderBy("time", "asc"));
+    const snap = await getDocs(q);
+    paymentRecords = [];
+    snap.forEach(doc => {
+      paymentRecords.push({ ...doc.data(), _docId: doc.id });
+    });
+    paymentRecordsLoaded = true;
+    console.log(`✅ ${paymentRecords.length} payment records loaded from Firebase`);
+  } catch(e) {
+    console.error("❌ Failed to load payment records from Firebase:", e);
+    paymentRecords = [];
+  }
+}
+
+async function savePaymentToFirebase(rec) {
+  if (!isFirebaseReady()) {
+    showNotif("⚠ Firebase not connected. Payment NOT saved!");
+    return null;
+  }
+  try {
+    const { addDoc, collection } = firebaseAPI;
+    const docRef = await addDoc(collection(db, "payment_records"), rec);
+    return docRef.id;
+  } catch(e) {
+    console.error("❌ Firebase payment save error:", e);
+    showNotif("❌ Could not save payment. Check connection.");
+    return null;
+  }
+}
+
+async function deletePaymentFromFirebase(docId) {
+  if (!isFirebaseReady() || !docId) return;
+  try {
+    const { deleteDoc, doc } = firebaseAPI;
+    await deleteDoc(doc(db, "payment_records", docId));
+  } catch(e) {
+    console.error("❌ Firebase delete error:", e);
+    showNotif("❌ Could not delete from Firebase.");
+  }
+}
+
+// ===================================================
+//   LOAD / SAVE (localStorage — NOT payments)
 // ===================================================
 function load() {
   try {
@@ -435,32 +509,21 @@ function createParticles() {
 // ===================================================
 function generateOTP() { return Math.floor(100000+Math.random()*900000).toString(); }
 
-// ✅ FIXED: sendCustomerOTP also checks Firebase
 async function sendCustomerOTP() {
   const email = document.getElementById("c-forgot-email").value.trim().toLowerCase();
   if (!email.includes("@")) return setAuthError("customer","Enter valid email");
-
-  // Check local first
   let cust = Object.values(customers).find(c => c.email && c.email.toLowerCase() === email);
-
-  // If not found locally, check Firebase
   if (!cust && isFirebaseReady()) {
     try {
       const { getDocs, collection } = firebaseAPI;
       const snap = await getDocs(collection(db, "customers"));
       snap.forEach(docSnap => {
         const d = docSnap.data();
-        if (d.email && d.email.toLowerCase() === email) {
-          cust = d;
-          customers[d.id || d.phone] = d;
-          save();
-        }
+        if (d.email && d.email.toLowerCase() === email) { cust = d; customers[d.id || d.phone] = d; save(); }
       });
     } catch(e) { console.error("OTP fetch error:", e); }
   }
-
   if (!cust) return setAuthError("customer","No account found with this email");
-
   const otp = generateOTP();
   otpStore[email] = { otp, expiry:Date.now()+600000, role:"customer", userId:cust.id||cust.phone };
   console.log(`📧 OTP for ${email}: ${otp}`);
@@ -549,14 +612,10 @@ async function resetCustomerPassword() {
   if (!record)         return setAuthError("customer","Session expired. Start again");
   const cust = customers[record.userId];
   if (cust) {
-    cust.password=pass;
-    save();
-    // Also update in Firebase
+    cust.password=pass; save();
     if (isFirebaseReady()) {
-      try {
-        const { setDoc, doc } = firebaseAPI;
-        await setDoc(doc(db, "customers", cust.id), { ...cust, password: pass }, { merge: true });
-      } catch(e) { console.error("Firebase password reset error:", e); }
+      try { const { setDoc, doc } = firebaseAPI; await setDoc(doc(db, "customers", cust.id), { ...cust, password: pass }, { merge: true }); }
+      catch(e) { console.error("Firebase password reset error:", e); }
     }
     delete otpStore[email];
     showNotif("✅ Password reset! Please login.");
@@ -602,21 +661,15 @@ function setAuthError(role, msg) {
   if (el) el.textContent = msg;
 }
 
-// ===================================================
-//   ✅ FIXED: customerSignup — saves to Firebase with password
-// ===================================================
 async function customerSignup() {
   const name  = document.getElementById("c-signup-name").value.trim();
   const phone = document.getElementById("c-signup-phone").value.trim();
   const email = document.getElementById("c-signup-email").value.trim().toLowerCase();
   const pass  = document.getElementById("c-signup-pass").value;
-
   if (!name)                return setAuthError("customer","Enter your name");
   if (phone.length!==10)    return setAuthError("customer","Enter valid 10-digit phone");
   if (!email.includes("@")) return setAuthError("customer","Enter valid email");
   if (pass.length<4)        return setAuthError("customer","Password 4+ characters");
-
-  // Check Firebase first for existing account (cross-device duplicate check)
   if (isFirebaseReady()) {
     try {
       const { getDocs, collection } = firebaseAPI;
@@ -624,58 +677,31 @@ async function customerSignup() {
       let exists = false;
       snap.forEach(docSnap => {
         const d = docSnap.data();
-        if (d.phone === phone || (d.email && d.email.toLowerCase() === email)) {
-          exists = true;
-        }
+        if (d.phone === phone || (d.email && d.email.toLowerCase() === email)) exists = true;
       });
       if (exists) return setAuthError("customer","Account already exists. Please login.");
     } catch(e) { console.error("Signup duplicate check error:", e); }
   } else if (customers[phone]) {
     return setAuthError("customer","Account already exists");
   }
-
-  const newCust = {
-    id: phone, name, phone,
-    email: email,
-    password: pass,
-    orders: [], totalSpent: 0, visits: 0,
-    loyaltyPoints: 0, joinedAt: Date.now()
-  };
+  const newCust = { id:phone, name, phone, email, password:pass, orders:[], totalSpent:0, visits:0, loyaltyPoints:0, joinedAt:Date.now() };
   customers[phone] = newCust;
   save();
-
-  // Always save to Firebase on signup so it works cross-device
   if (isFirebaseReady()) {
     try {
       const { setDoc, doc } = firebaseAPI;
       await setDoc(doc(db, "customers", phone), newCust);
       showNotif(`✅ Welcome ${name}! Account saved to cloud 🎉`);
-    } catch(e) {
-      console.error("Firebase signup save error:", e);
-      showNotif(`✅ Welcome ${name}! 🎉`);
-    }
-  } else {
-    showNotif(`✅ Welcome ${name}! 🎉`);
-  }
-
+    } catch(e) { console.error("Firebase signup save error:", e); showNotif(`✅ Welcome ${name}! 🎉`); }
+  } else { showNotif(`✅ Welcome ${name}! 🎉`); }
   loginAsCustomer(newCust);
 }
 
-// ===================================================
-//   ✅ FIXED: customerLogin — checks Firebase if not found locally
-// ===================================================
 async function customerLogin() {
   const input = document.getElementById("c-login-id").value.trim().toLowerCase();
   const pass  = document.getElementById("c-login-pass").value;
-
   setAuthError("customer", "🔄 Checking...");
-
-  // 1. Try local storage first (fast path)
-  let cust = Object.values(customers).find(
-    c => c.phone === input || (c.email && c.email.toLowerCase() === input)
-  );
-
-  // 2. If not found locally, fetch from Firebase (cross-device fix)
+  let cust = Object.values(customers).find(c => c.phone === input || (c.email && c.email.toLowerCase() === input));
   if (!cust && isFirebaseReady()) {
     try {
       const { getDocs, collection } = firebaseAPI;
@@ -683,10 +709,7 @@ async function customerLogin() {
       snap.forEach(docSnap => {
         const d = docSnap.data();
         if (d.phone === input || (d.email && d.email.toLowerCase() === input)) {
-          cust = d;
-          // Cache locally so next login is instant on this device
-          customers[d.id || d.phone] = d;
-          save();
+          cust = d; customers[d.id || d.phone] = d; save();
         }
       });
     } catch(e) {
@@ -695,10 +718,8 @@ async function customerLogin() {
       return;
     }
   }
-
   if (!cust) return setAuthError("customer","No account found");
   if (cust.password !== pass) return setAuthError("customer","Wrong password");
-
   setAuthError("customer", "");
   loginAsCustomer(cust);
 }
@@ -715,18 +736,9 @@ function showGuestOrderModal() {
       <div class="modal-title">Login Required to Order</div>
       <div style="font-size:13px;color:var(--muted);margin:8px 0 20px">Create a free account to place orders, track tokens, earn loyalty points!</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        <button class="btn-primary" style="margin:0"
-          onclick="document.getElementById('guest-order-modal').classList.remove('show');showScreen('screen-customer-auth');switchAuthTab('customer','signup')">
-          ✨ Create Free Account
-        </button>
-        <button class="btn-ghost"
-          onclick="document.getElementById('guest-order-modal').classList.remove('show');showScreen('screen-customer-auth');switchAuthTab('customer','login')">
-          Already have account? Login
-        </button>
-        <button class="btn-ghost" style="font-size:11px;padding:8px;color:var(--muted)"
-          onclick="document.getElementById('guest-order-modal').classList.remove('show')">
-          Continue browsing as guest
-        </button>
+        <button class="btn-primary" style="margin:0" onclick="document.getElementById('guest-order-modal').classList.remove('show');showScreen('screen-customer-auth');switchAuthTab('customer','signup')">✨ Create Free Account</button>
+        <button class="btn-ghost" onclick="document.getElementById('guest-order-modal').classList.remove('show');showScreen('screen-customer-auth');switchAuthTab('customer','login')">Already have account? Login</button>
+        <button class="btn-ghost" style="font-size:11px;padding:8px;color:var(--muted)" onclick="document.getElementById('guest-order-modal').classList.remove('show')">Continue browsing as guest</button>
       </div>
     </div>`;
   el.onclick=(e)=>{if(e.target===el)el.classList.remove("show");};
@@ -753,22 +765,14 @@ function showTokenConfirmation(token, total, mode) {
         <div class="tc-step">🔔 Ready to ${mode==="delivery"?"Deliver":"Pickup"}</div>
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Show this token to collect your order</div>
-      <button class="a-btn a-btn-green" style="width:100%;padding:13px"
-        onclick="document.getElementById('token-confirm-overlay').remove()">Got it! 🙌</button>
+      <button class="a-btn a-btn-green" style="width:100%;padding:13px" onclick="document.getElementById('token-confirm-overlay').remove()">Got it! 🙌</button>
     </div>`;
   document.body.appendChild(el);
   setTimeout(()=>{const e=document.getElementById("token-confirm-overlay");if(e)e.remove();},8000);
 }
 
-function customerGuestLogin() {
-  currentUser = { type:"customer", id:"guest", name:"Guest" };
-  launchCustomerApp();
-}
-
-function loginAsCustomer(cust) {
-  currentUser = { type:"customer", id:cust.id, name:cust.name };
-  launchCustomerApp();
-}
+function customerGuestLogin() { currentUser = { type:"customer", id:"guest", name:"Guest" }; launchCustomerApp(); }
+function loginAsCustomer(cust) { currentUser = { type:"customer", id:cust.id, name:cust.name }; launchCustomerApp(); }
 
 function adminSignup() {
   const name  = document.getElementById("a-signup-name").value.trim();
@@ -813,17 +817,11 @@ function adminLogout() {
 //   CUSTOMER APP LAUNCH
 // ===================================================
 function launchCustomerApp() {
-  cart={};
-  activeCustCat="all";
-  activeCustTab="cart";
-  orderMode="pickup";
-  customerAddress="";
-  customerLocation=null;
-
-  const wBar        = document.getElementById("cust-welcome-bar");
-  const loyaltyChip = document.getElementById("loyalty-chip");
-  const userBadge   = document.getElementById("cust-user-badge");
-
+  cart={}; activeCustCat="all"; activeCustTab="cart";
+  orderMode="pickup"; customerAddress=""; customerLocation=null;
+  const wBar=document.getElementById("cust-welcome-bar");
+  const loyaltyChip=document.getElementById("loyalty-chip");
+  const userBadge=document.getElementById("cust-user-badge");
   if (currentUser.id!=="guest") {
     const c = customers[currentUser.id];
     userBadge.textContent = `👤 ${currentUser.name}`;
@@ -832,27 +830,17 @@ function launchCustomerApp() {
       loyaltyChip.style.display = "block";
       loyaltyChip.textContent   = `🌟 ${pts} pts`;
       wBar.style.display        = "flex";
-      if (c.visits>0) {
-        wBar.innerHTML = `${c.totalSpent>=500?"👑":"👋"} Welcome back <b>${c.name}</b>! ${c.totalSpent>=500?"VIP •":""} Visit #${c.visits+1} • 🌟 ${pts} pts`;
-      } else {
-        wBar.innerHTML = `🎉 Welcome <b>${c.name}</b>! Enjoy your first order 🍽️ • Earn points every order!`;
-      }
+      if (c.visits>0) { wBar.innerHTML = `${c.totalSpent>=500?"👑":"👋"} Welcome back <b>${c.name}</b>! ${c.totalSpent>=500?"VIP •":""} Visit #${c.visits+1} • 🌟 ${pts} pts`; }
+      else            { wBar.innerHTML = `🎉 Welcome <b>${c.name}</b>! Enjoy your first order 🍽️ • Earn points every order!`; }
     }
   } else {
-    userBadge.textContent      = "Guest 👋";
-    loyaltyChip.style.display  = "none";
-    wBar.style.display         = "none";
+    userBadge.textContent = "Guest 👋";
+    loyaltyChip.style.display = "none";
+    wBar.style.display = "none";
   }
-
-  renderContactBar();
-  renderOfferBanner();
-  renderAllOfferTimers();
-  renderCustCatBar();
-  renderCustCombos();
-  renderCustMenu();
-  renderCustCartPanel();
+  renderContactBar(); renderOfferBanner(); renderAllOfferTimers();
+  renderCustCatBar(); renderCustCombos(); renderCustMenu(); renderCustCartPanel();
   showScreen("screen-customer-app");
-
   if (happyHourInterval) clearInterval(happyHourInterval);
   happyHourInterval = setInterval(renderAllOfferTimers, 30000);
 }
@@ -860,90 +848,64 @@ function launchCustomerApp() {
 // ===================================================
 //   CONTACT BAR
 // ===================================================
-function getActiveContact() {
-  return adminContactNumbers.find(n => n.active) || adminContactNumbers[0];
-}
+function getActiveContact() { return adminContactNumbers.find(n => n.active) || adminContactNumbers[0]; }
 
 function renderContactBar() {
   const existing = document.getElementById("contact-bar");
   if (existing) existing.remove();
-
   const contact = getActiveContact();
   const bar = document.createElement("div");
-  bar.id = "contact-bar";
-  bar.className = "contact-bar";
-  bar.innerHTML = `
-    <div class="contact-bar-inner">
-      <span class="contact-bar-icon">📞</span>
-      <span class="contact-bar-text">Call us: <b>${contact.label}</b></span>
-      <a href="tel:${contact.number}" class="contact-call-btn">📱 ${contact.number}</a>
-      ${contact.whatsapp
-        ? `<a href="https://wa.me/91${contact.number}?text=Hi%20SV%20Chat%20Center%2C%20I%20want%20to%20place%20an%20order" target="_blank" class="contact-wa-btn">💬 WhatsApp</a>`
-        : ""}
-    </div>`;
-
+  bar.id = "contact-bar"; bar.className = "contact-bar";
+  bar.innerHTML = `<div class="contact-bar-inner">
+    <span class="contact-bar-icon">📞</span>
+    <span class="contact-bar-text">Call us: <b>${contact.label}</b></span>
+    <a href="tel:${contact.number}" class="contact-call-btn">📱 ${contact.number}</a>
+    ${contact.whatsapp?`<a href="https://wa.me/91${contact.number}?text=Hi%20SV%20Chat%20Center%2C%20I%20want%20to%20place%20an%20order" target="_blank" class="contact-wa-btn">💬 WhatsApp</a>`:""}
+  </div>`;
   const header = document.querySelector(".cust-header");
   if (header) header.after(bar);
 }
 
 // ===================================================
-//   ORDER MODE — Pickup / Delivery
+//   ORDER MODE
 // ===================================================
 function renderOrderModePanel() {
   const total = cartTotal();
   const deliveryAvailable = total >= DELIVERY_MIN_ORDER;
-  return `
-    <div class="order-mode-wrap">
-      <div class="order-mode-title">🛵 How would you like to receive your order?</div>
-      <div class="order-mode-btns">
-        <button class="mode-btn${orderMode==="pickup"?" mode-active":""}" onclick="setOrderMode('pickup')">
-          🏪 <span>Pick Up at Store</span>
-          <small>Ready in 10-15 mins</small>
-        </button>
-        <button class="mode-btn${orderMode==="delivery"?" mode-active":""}"
-          onclick="setOrderMode('delivery')"
-          ${!deliveryAvailable?`title="Add ₹${DELIVERY_MIN_ORDER-total} more for delivery"`:""}>
-          🛵 <span>Home Delivery</span>
-          <small>${deliveryAvailable ? `₹${DELIVERY_CHARGE} • 5-10 km radius` : `Min ₹${DELIVERY_MIN_ORDER} order`}</small>
-        </button>
-      </div>
-      ${orderMode==="pickup"   ? renderPickupInfo()   : ""}
-      ${orderMode==="delivery" ? renderDeliveryForm() : ""}
-    </div>`;
+  return `<div class="order-mode-wrap">
+    <div class="order-mode-title">🛵 How would you like to receive your order?</div>
+    <div class="order-mode-btns">
+      <button class="mode-btn${orderMode==="pickup"?" mode-active":""}" onclick="setOrderMode('pickup')">🏪 <span>Pick Up at Store</span><small>Ready in 10-15 mins</small></button>
+      <button class="mode-btn${orderMode==="delivery"?" mode-active":""}" onclick="setOrderMode('delivery')" ${!deliveryAvailable?`title="Add ₹${DELIVERY_MIN_ORDER-total} more for delivery"`:""}>🛵 <span>Home Delivery</span><small>${deliveryAvailable?`₹${DELIVERY_CHARGE} • 5-10 km radius`:`Min ₹${DELIVERY_MIN_ORDER} order`}</small></button>
+    </div>
+    ${orderMode==="pickup"?renderPickupInfo():""} ${orderMode==="delivery"?renderDeliveryForm():""}
+  </div>`;
 }
 
 function renderPickupInfo() {
-  return `
-    <div class="pickup-info">
-      <div class="pickup-info-row">📍 <b>${STORE_LOCATION.address}</b></div>
-      <div class="pickup-info-row">⏰ Open: 11 AM – 10 PM (All Days)</div>
-      <div class="pickup-info-row">📞 <a href="tel:${STORE_LOCATION.phone}" style="color:var(--green-d);font-weight:700">${STORE_LOCATION.phone}</a></div>
-      <a href="${STORE_LOCATION.mapUrl}" target="_blank" class="map-link-btn">🗺️ Get Directions on Google Maps</a>
-    </div>`;
+  return `<div class="pickup-info">
+    <div class="pickup-info-row">📍 <b>${STORE_LOCATION.address}</b></div>
+    <div class="pickup-info-row">⏰ Open: 11 AM – 10 PM (All Days)</div>
+    <div class="pickup-info-row">📞 <a href="tel:${STORE_LOCATION.phone}" style="color:var(--green-d);font-weight:700">${STORE_LOCATION.phone}</a></div>
+    <a href="${STORE_LOCATION.mapUrl}" target="_blank" class="map-link-btn">🗺️ Get Directions on Google Maps</a>
+  </div>`;
 }
 
 function renderDeliveryForm() {
   const total = cartTotal();
-  if (total < DELIVERY_MIN_ORDER) {
-    return `<div class="delivery-unavail">🚫 Minimum ₹${DELIVERY_MIN_ORDER} order for delivery. Add ₹${DELIVERY_MIN_ORDER-total} more.</div>`;
-  }
-  return `
-    <div class="delivery-form">
-      <div class="delivery-info-note">🛵 Delivery within <b>${DELIVERY_RADIUS_KM} km</b> of our store • Charge: <b>₹${DELIVERY_CHARGE}</b></div>
-      <input class="a-input delivery-addr-input" id="delivery-address" placeholder="Enter your full delivery address" value="${customerAddress}" oninput="customerAddress=this.value">
-      <button class="locate-btn" onclick="detectMyLocation()">📍 Use My Current Location</button>
-      ${customerLocation ? `<div class="location-detected">✅ Location detected: ${customerLocation.lat.toFixed(4)}, ${customerLocation.lng.toFixed(4)}</div>` : ""}
-    </div>`;
+  if (total < DELIVERY_MIN_ORDER) return `<div class="delivery-unavail">🚫 Minimum ₹${DELIVERY_MIN_ORDER} order for delivery. Add ₹${DELIVERY_MIN_ORDER-total} more.</div>`;
+  return `<div class="delivery-form">
+    <div class="delivery-info-note">🛵 Delivery within <b>${DELIVERY_RADIUS_KM} km</b> of our store • Charge: <b>₹${DELIVERY_CHARGE}</b></div>
+    <input class="a-input delivery-addr-input" id="delivery-address" placeholder="Enter your full delivery address" value="${customerAddress}" oninput="customerAddress=this.value">
+    <button class="locate-btn" onclick="detectMyLocation()">📍 Use My Current Location</button>
+    ${customerLocation?`<div class="location-detected">✅ Location detected: ${customerLocation.lat.toFixed(4)}, ${customerLocation.lng.toFixed(4)}</div>`:""}
+  </div>`;
 }
 
 function setOrderMode(mode) {
   const total = cartTotal();
-  if (mode==="delivery" && total < DELIVERY_MIN_ORDER) {
-    showNotif(`⚠ Add ₹${DELIVERY_MIN_ORDER-total} more for delivery eligibility`);
-    return;
-  }
-  orderMode = mode;
-  renderCustCartPanel();
+  if (mode==="delivery" && total < DELIVERY_MIN_ORDER) { showNotif(`⚠ Add ₹${DELIVERY_MIN_ORDER-total} more for delivery eligibility`); return; }
+  orderMode = mode; renderCustCartPanel();
 }
 
 function detectMyLocation() {
@@ -953,13 +915,8 @@ function detectMyLocation() {
     (pos) => {
       customerLocation = { lat:pos.coords.latitude, lng:pos.coords.longitude };
       const dist = calcDistance(STORE_LOCATION.lat, STORE_LOCATION.lng, customerLocation.lat, customerLocation.lng);
-      if (dist > DELIVERY_RADIUS_KM) {
-        showNotif(`⚠ You're ${dist.toFixed(1)}km away. Delivery only within ${DELIVERY_RADIUS_KM}km.`, 4000);
-        customerLocation = null;
-        orderMode = "pickup";
-      } else {
-        showNotif(`✅ Location detected! You're ${dist.toFixed(1)}km from store.`);
-      }
+      if (dist > DELIVERY_RADIUS_KM) { showNotif(`⚠ You're ${dist.toFixed(1)}km away. Delivery only within ${DELIVERY_RADIUS_KM}km.`,4000); customerLocation=null; orderMode="pickup"; }
+      else { showNotif(`✅ Location detected! You're ${dist.toFixed(1)}km from store.`); }
       renderCustCartPanel();
     },
     () => { showNotif("⚠ Could not detect location. Please enter address manually."); }
@@ -967,46 +924,32 @@ function detectMyLocation() {
 }
 
 function calcDistance(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const dLat = (lat2-lat1)*Math.PI/180;
-  const dLng = (lng2-lng1)*Math.PI/180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const R=6371, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-// ===================================================
-//   STORE LOCATION MODAL
-// ===================================================
 function showLocationModal() {
-  const modal = document.getElementById("location-modal");
-  if (modal) { modal.classList.add("show"); return; }
+  const existing = document.getElementById("location-modal");
+  if (existing) { existing.classList.add("show"); return; }
   const el = document.createElement("div");
-  el.id = "location-modal";
-  el.className = "modal-overlay show";
-  el.onclick = (e) => { if(e.target===el) el.classList.remove("show"); };
-  el.innerHTML = `
-    <div class="modal-card" style="max-width:520px" onclick="event.stopPropagation()">
-      <div class="modal-title">📍 Find Us</div>
-      <div class="store-info-grid">
-        <div class="store-info-row">🏪 <div><b>${STORE_LOCATION.name}</b><br><span style="font-size:12px;color:var(--muted)">${STORE_LOCATION.address}</span></div></div>
-        <div class="store-info-row">⏰ <div><b>Working Hours</b><br><span style="font-size:12px;color:var(--muted)">Monday – Sunday: 11 AM to 10 PM</span></div></div>
-        <div class="store-info-row">📞 <div><b>Phone</b><br><a href="tel:${STORE_LOCATION.phone}" style="color:var(--green-d);font-weight:700">${STORE_LOCATION.phone}</a></div></div>
-      </div>
-      <div class="map-embed-wrap">
-        <div class="map-placeholder">
-          <div style="font-size:40px;margin-bottom:10px">🗺️</div>
-          <div style="font-weight:700;margin-bottom:6px">SV Chat Center & Ice Cream</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${STORE_LOCATION.address}</div>
-          <a href="${STORE_LOCATION.mapUrl}" target="_blank" class="map-link-btn" style="display:inline-block">📍 Open in Google Maps</a>
-        </div>
-      </div>
-      <div class="delivery-zone-info">
-        <div class="dz-title">🛵 Delivery Zone</div>
-        <div class="dz-desc">We deliver within <b>${DELIVERY_RADIUS_KM} km</b> of our store for orders above <b>₹${DELIVERY_MIN_ORDER}</b>. Delivery charge: <b>₹${DELIVERY_CHARGE}</b>.</div>
-        <div class="dz-map-hint">Areas covered: Kothrud, Karve Nagar, Warje, Erandwane, Deccan, FC Road, Shivajinagar, Baner (nearby)</div>
-      </div>
-      <button class="a-btn" onclick="document.getElementById('location-modal').classList.remove('show')" style="width:100%;margin-top:14px">Close</button>
-    </div>`;
+  el.id="location-modal"; el.className="modal-overlay show";
+  el.onclick=(e)=>{if(e.target===el)el.classList.remove("show");};
+  el.innerHTML=`<div class="modal-card" style="max-width:520px" onclick="event.stopPropagation()">
+    <div class="modal-title">📍 Find Us</div>
+    <div class="store-info-grid">
+      <div class="store-info-row">🏪 <div><b>${STORE_LOCATION.name}</b><br><span style="font-size:12px;color:var(--muted)">${STORE_LOCATION.address}</span></div></div>
+      <div class="store-info-row">⏰ <div><b>Working Hours</b><br><span style="font-size:12px;color:var(--muted)">Monday – Sunday: 11 AM to 10 PM</span></div></div>
+      <div class="store-info-row">📞 <div><b>Phone</b><br><a href="tel:${STORE_LOCATION.phone}" style="color:var(--green-d);font-weight:700">${STORE_LOCATION.phone}</a></div></div>
+    </div>
+    <div class="map-placeholder" style="border-radius:12px;padding:24px;text-align:center;background:var(--green-l)">
+      <div style="font-size:40px;margin-bottom:10px">🗺️</div>
+      <div style="font-weight:700;margin-bottom:6px">SV Chat Center & Ice Cream</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${STORE_LOCATION.address}</div>
+      <a href="${STORE_LOCATION.mapUrl}" target="_blank" class="map-link-btn" style="display:inline-block">📍 Open in Google Maps</a>
+    </div>
+    <button class="a-btn" onclick="document.getElementById('location-modal').classList.remove('show')" style="width:100%;margin-top:14px">Close</button>
+  </div>`;
   document.body.appendChild(el);
 }
 
@@ -1034,16 +977,11 @@ function renderOfferBanner() {
 function renderAllOfferTimers() {
   const container = document.getElementById("all-offer-timers");
   if (!container) return;
-  offerTimerIntervals.forEach(clearInterval);
-  offerTimerIntervals=[];
-  container.innerHTML="";
+  offerTimerIntervals.forEach(clearInterval); offerTimerIntervals=[]; container.innerHTML="";
   const h=new Date().getHours(), now=Date.now();
-
   getActiveOffers().forEach(offer => {
     if (!offer.timerType||offer.timerType==="none") return;
-    const bar = document.createElement("div");
-    bar.className="offer-timer-bar";
-
+    const bar = document.createElement("div"); bar.className="offer-timer-bar";
     if (offer.timerType==="happy-hour"||offer.type==="time") {
       if (h>=offer.startHour&&h<=offer.endHour) {
         bar.classList.add("type-happy-hour");
@@ -1052,30 +990,25 @@ function renderAllOfferTimers() {
         bar.innerHTML=`<span>⚡ <b>Happy Hours LIVE!</b> ${offer.value}% OFF</span><div class="offer-timer-progress"><div class="offer-timer-progress-fill" id="hh-fill-${offer.id}" style="width:100%"></div></div><span class="offer-timer-countdown" id="hh-cd-${offer.id}">--:--</span>`;
         container.appendChild(bar);
         const iv=setInterval(()=>{
-          const diff=endDate-Date.now();
-          if(diff<=0){bar.remove();clearInterval(iv);return;}
+          const diff=endDate-Date.now(); if(diff<=0){bar.remove();clearInterval(iv);return;}
           const min=Math.floor(diff/60000),sec=Math.floor((diff%60000)/1000);
-          const cdEl=document.getElementById(`hh-cd-${offer.id}`);
-          const fillEl=document.getElementById(`hh-fill-${offer.id}`);
+          const cdEl=document.getElementById(`hh-cd-${offer.id}`); const fillEl=document.getElementById(`hh-fill-${offer.id}`);
           if(cdEl)cdEl.textContent=`${min}:${String(sec).padStart(2,"0")}`;
           if(fillEl)fillEl.style.width=Math.min((diff/1000/totalDur)*100,100)+"%";
-        },1000);
-        offerTimerIntervals.push(iv);
-      } else if(h<offer.startHour){
+        },1000); offerTimerIntervals.push(iv);
+      } else if(h<offer.startHour) {
         bar.classList.add("type-upcoming");
         const startDate=new Date(); startDate.setHours(offer.startHour,0,0,0);
         bar.innerHTML=`<span>🕐 Happy Hours starts soon — ${offer.value}% OFF at ${offer.startHour}:00</span><span class="offer-timer-countdown" id="uh-cd-${offer.id}">--:--</span>`;
         container.appendChild(bar);
         const iv=setInterval(()=>{
-          const diff=startDate-Date.now();
-          if(diff<=0){clearInterval(iv);renderAllOfferTimers();return;}
+          const diff=startDate-Date.now(); if(diff<=0){clearInterval(iv);renderAllOfferTimers();return;}
           const hrs=Math.floor(diff/3600000),min=Math.floor((diff%3600000)/60000);
           const cdEl=document.getElementById(`uh-cd-${offer.id}`);
           if(cdEl)cdEl.textContent=hrs>0?`${hrs}h ${min}m`:`${min}m`;
-        },1000);
-        offerTimerIntervals.push(iv);
+        },1000); offerTimerIntervals.push(iv);
       }
-    } else if(offer.timerType==="flash"){
+    } else if(offer.timerType==="flash") {
       if(!offer.endTime||offer.endTime<now)return;
       bar.classList.add("type-flash");
       const endDate=new Date(offer.endTime);
@@ -1083,86 +1016,66 @@ function renderAllOfferTimers() {
       container.appendChild(bar);
       const totalDur=(offer.endTime-(offer.startTime||now))/1000;
       const iv=setInterval(()=>{
-        const diff=endDate-Date.now();
-        if(diff<=0){bar.remove();clearInterval(iv);return;}
+        const diff=endDate-Date.now(); if(diff<=0){bar.remove();clearInterval(iv);return;}
         const min=Math.floor(diff/60000),sec=Math.floor((diff%60000)/1000);
-        const cdEl=document.getElementById(`fl-cd-${offer.id}`);
-        const fillEl=document.getElementById(`fl-fill-${offer.id}`);
+        const cdEl=document.getElementById(`fl-cd-${offer.id}`); const fillEl=document.getElementById(`fl-fill-${offer.id}`);
         if(cdEl)cdEl.textContent=`${min}:${String(sec).padStart(2,"0")}`;
         if(fillEl)fillEl.style.width=Math.min((diff/1000/totalDur)*100,100)+"%";
-      },1000);
-      offerTimerIntervals.push(iv);
-    } else if(offer.timerType==="seasonal"){
+      },1000); offerTimerIntervals.push(iv);
+    } else if(offer.timerType==="seasonal") {
       bar.classList.add("type-seasonal");
       bar.innerHTML=`<span>🌿 <b>Seasonal Special!</b> ${offer.desc}</span>${offer.endDate?`<span class="offer-timer-countdown" id="sea-cd-${offer.id}">Loading...</span>`:""}`;
       container.appendChild(bar);
       if(offer.endDate){
         const endDate=new Date(offer.endDate);
         const iv=setInterval(()=>{
-          const diff=endDate-Date.now();
-          const cdEl=document.getElementById(`sea-cd-${offer.id}`);
+          const diff=endDate-Date.now(); const cdEl=document.getElementById(`sea-cd-${offer.id}`);
           if(!cdEl||diff<=0){clearInterval(iv);return;}
           const days=Math.floor(diff/86400000),hrs=Math.floor((diff%86400000)/3600000);
           cdEl.textContent=days>0?`${days}d ${hrs}h left`:`${hrs}h left`;
-        },60000);
-        offerTimerIntervals.push(iv);
-        const diff=endDate-Date.now();
-        const cdEl=document.getElementById(`sea-cd-${offer.id}`);
+        },60000); offerTimerIntervals.push(iv);
+        const diff=endDate-Date.now(); const cdEl=document.getElementById(`sea-cd-${offer.id}`);
         if(cdEl&&diff>0){const days=Math.floor(diff/86400000);const hrs=Math.floor((diff%86400000)/3600000);cdEl.textContent=days>0?`${days}d ${hrs}h left`:`${hrs}h left`;}
       }
-    } else if(offer.timerType==="todays"){
+    } else if(offer.timerType==="todays") {
       bar.classList.add("type-todays");
       const midnight=new Date(); midnight.setHours(23,59,59,999);
       bar.innerHTML=`<span>☀️ <b>Today's Special!</b> ${offer.desc}</span><span class="offer-timer-countdown" id="td-cd-${offer.id}">--:--</span>`;
       container.appendChild(bar);
       const iv=setInterval(()=>{
-        const diff=midnight-Date.now();
-        if(diff<=0){bar.remove();clearInterval(iv);return;}
+        const diff=midnight-Date.now(); if(diff<=0){bar.remove();clearInterval(iv);return;}
         const hrs=Math.floor(diff/3600000),min=Math.floor((diff%3600000)/60000);
         const cdEl=document.getElementById(`td-cd-${offer.id}`);
         if(cdEl)cdEl.textContent=`${hrs}h ${min}m left`;
-      },60000);
-      offerTimerIntervals.push(iv);
-      const diff2=midnight-Date.now();
-      const cdEl2=document.getElementById(`td-cd-${offer.id}`);
+      },60000); offerTimerIntervals.push(iv);
+      const diff2=midnight-Date.now(); const cdEl2=document.getElementById(`td-cd-${offer.id}`);
       if(cdEl2){const hrs2=Math.floor(diff2/3600000);const min2=Math.floor((diff2%3600000)/60000);cdEl2.textContent=`${hrs2}h ${min2}m left`;}
     }
   });
-
-  const bar2=document.getElementById("live-offer-bar");
-  if(bar2)bar2.style.display="none";
+  const bar2=document.getElementById("live-offer-bar"); if(bar2)bar2.style.display="none";
 }
 
 // ===================================================
 //   CATEGORY BAR
 // ===================================================
 function renderCustCatBar() {
-  const bar     = document.getElementById("cust-cat-bar");
-  const isAdmin = currentUser?.type==="admin";
-  bar.innerHTML = CATS.map(c =>
-    `<button class="cat-btn ${c.cls}${activeCustCat===c.id?" active":""}" onclick="filterCustCat('${c.id}')">${c.label}</button>`
-  ).join("") +
-  (isAdmin
-    ? `<button class="cat-btn cat-add-new" onclick="promptAddCategory()" title="Add new category">⚙️ +Cat</button>`
-    : "");
+  const bar=document.getElementById("cust-cat-bar");
+  const isAdmin=currentUser?.type==="admin";
+  bar.innerHTML=CATS.map(c=>`<button class="cat-btn ${c.cls}${activeCustCat===c.id?" active":""}" onclick="filterCustCat('${c.id}')">${c.label}</button>`).join("")+
+  (isAdmin?`<button class="cat-btn cat-add-new" onclick="promptAddCategory()" title="Add new category">⚙️ +Cat</button>`:"");
 }
 
-function filterCustCat(cat) {
-  activeCustCat=cat; renderCustCatBar(); renderCustMenu();
-}
+function filterCustCat(cat) { activeCustCat=cat; renderCustCatBar(); renderCustMenu(); }
 
 function promptAddCategory() {
-  const name = prompt("Enter new category name (e.g. Thali, Desserts):");
-  if (!name||!name.trim()) return;
-  const emoji = prompt("Enter an emoji for the category (e.g. 🍱):") || "🍽";
-  const id = name.trim().toLowerCase().replace(/\s+/g,"-");
-  if (CATS.find(c=>c.id===id)) { showNotif("Category already exists!"); return; }
-  const newCat = { id, name:name.trim(), emoji };
-  customCategories.push(newCat);
-  rebuildCats();
-  save();
-  renderCustCatBar();
-  if (typeof renderAdminMenu === "function" && activeAdminTab==="menu") renderAdminMenu();
+  const name=prompt("Enter new category name (e.g. Thali, Desserts):");
+  if(!name||!name.trim())return;
+  const emoji=prompt("Enter an emoji for the category (e.g. 🍱):")||"🍽";
+  const id=name.trim().toLowerCase().replace(/\s+/g,"-");
+  if(CATS.find(c=>c.id===id)){showNotif("Category already exists!");return;}
+  const newCat={id,name:name.trim(),emoji};
+  customCategories.push(newCat); rebuildCats(); save(); renderCustCatBar();
+  if(typeof renderAdminMenu==="function"&&activeAdminTab==="menu")renderAdminMenu();
   showNotif(`✅ Category "${emoji} ${name}" added!`);
 }
 
@@ -1170,28 +1083,19 @@ function promptAddCategory() {
 //   COMBOS
 // ===================================================
 function renderCustCombos() {
-  const sec    = document.getElementById("cust-combo-section");
-  const active = combos.filter(c=>c.active);
-  if (active.length===0) { sec.innerHTML=`<div class="section-title" style="margin-bottom:10px">🍽 Menu</div>`; return; }
-  const cards = active.map(c => {
-    const names  = c.itemIds.map(id=>{const i=ITEMS.find(x=>x.id===id);return i?i.name:"";}).filter(Boolean);
-    const orig   = c.itemIds.reduce((s,id)=>{const i=ITEMS.find(x=>x.id===id);return s+(i?i.price:0);},0);
-    const savAmt = orig-c.price;
-    const labelHTML = c.label==="popular"
-      ? `<span class="combo-label combo-label-popular">🔥 Most Popular</span>`
-      : c.label==="value"
-      ? `<span class="combo-label combo-label-value">💸 Best Value</span>`
-      : "";
+  const sec=document.getElementById("cust-combo-section");
+  const active=combos.filter(c=>c.active);
+  if(active.length===0){sec.innerHTML=`<div class="section-title" style="margin-bottom:10px">🍽 Menu</div>`;return;}
+  const cards=active.map(c=>{
+    const names=c.itemIds.map(id=>{const i=ITEMS.find(x=>x.id===id);return i?i.name:"";}).filter(Boolean);
+    const orig=c.itemIds.reduce((s,id)=>{const i=ITEMS.find(x=>x.id===id);return s+(i?i.price:0);},0);
+    const savAmt=orig-c.price;
+    const labelHTML=c.label==="popular"?`<span class="combo-label combo-label-popular">🔥 Most Popular</span>`:c.label==="value"?`<span class="combo-label combo-label-value">💸 Best Value</span>`:"";
     return `<div class="combo-card" onclick="addCombo('${c.id}')">
-      ${labelHTML}
-      <div class="combo-fire">${c.emoji}</div>
+      ${labelHTML}<div class="combo-fire">${c.emoji}</div>
       <div class="combo-name">${c.name}</div>
       <div class="combo-items-list">${names.join(" + ")}</div>
-      <div class="combo-pricing">
-        <div class="combo-price">₹${c.price}</div>
-        <div class="combo-original">₹${orig}</div>
-        <div class="combo-save">Save ₹${savAmt}</div>
-      </div>
+      <div class="combo-pricing"><div class="combo-price">₹${c.price}</div><div class="combo-original">₹${orig}</div><div class="combo-save">Save ₹${savAmt}</div></div>
       <button class="combo-add-btn">🛒 Add Combo</button>
     </div>`;
   }).join("");
@@ -1199,9 +1103,8 @@ function renderCustCombos() {
 }
 
 function addCombo(comboId) {
-  const combo = combos.find(c=>c.id===comboId);
-  if (!combo) return;
-  const orig = combo.itemIds.reduce((s,id)=>{const i=ITEMS.find(x=>x.id===id);return s+(i?i.price:0);},0);
+  const combo=combos.find(c=>c.id===comboId); if(!combo)return;
+  const orig=combo.itemIds.reduce((s,id)=>{const i=ITEMS.find(x=>x.id===id);return s+(i?i.price:0);},0);
   combo.itemIds.forEach(id=>{const item=ITEMS.find(x=>x.id===id);if(!item)return;if(cart[item.name])cart[item.name].qty++;else cart[item.name]={price:item.price,qty:1,itemId:id};});
   if(!cart.__combos)cart.__combos=[];
   cart.__combos.push({comboId,discount:orig-combo.price,name:combo.name});
@@ -1213,59 +1116,39 @@ function addCombo(comboId) {
 // ===================================================
 //   MENU RENDER
 // ===================================================
-function getItemImage(item) {
-  if (item.image) return item.image;
-  return DEFAULT_IMAGES[item.name]||null;
-}
+function getItemImage(item) { if(item.image)return item.image; return DEFAULT_IMAGES[item.name]||null; }
 
 function getLabelRibbon(item) {
-  const labelDef = ITEM_LABELS.find(l=>l.value===item.label);
-  if (!labelDef||labelDef.value==="none") return "";
+  const labelDef=ITEM_LABELS.find(l=>l.value===item.label);
+  if(!labelDef||labelDef.value==="none")return "";
   return `<span class="label-ribbon label-${item.label}">${labelDef.ribbon}</span>`;
 }
 
 function renderCustMenu() {
-  const grid   = document.getElementById("cust-menu-grid");
-  const list   = activeCustCat==="all" ? ITEMS : ITEMS.filter(i=>i.cat===activeCustCat);
-  const disc   = getTimeDiscount();
-  const pOffer = getPersonalOffer(currentUser?.id);
-
-  grid.innerHTML = list.map(item => {
-    const qty       = cart[item.name] ? cart[item.name].qty : 0;
-    const pDisc     = pOffer&&pOffer.itemId===item.id ? pOffer.value/100 : 0;
-    const totDisc   = Math.max(disc,pDisc);
-    const discPrice = totDisc>0 ? Math.round(item.price*(1-totDisc)) : null;
-    const imgSrc    = getItemImage(item);
-    const add       = item.add||ADD_MAP[item.cat]||"add-custom";
-
-    const imgContent  = imgSrc ? `<img class="real-img img-loading" src="${imgSrc}" alt="${item.name}" onload="this.classList.remove('img-loading')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : "";
-    const emojiStyle  = imgSrc ? "display:none" : "display:flex";
-
+  const grid=document.getElementById("cust-menu-grid");
+  const list=activeCustCat==="all"?ITEMS:ITEMS.filter(i=>i.cat===activeCustCat);
+  const disc=getTimeDiscount(); const pOffer=getPersonalOffer(currentUser?.id);
+  grid.innerHTML=list.map(item=>{
+    const qty=cart[item.name]?cart[item.name].qty:0;
+    const pDisc=pOffer&&pOffer.itemId===item.id?pOffer.value/100:0;
+    const totDisc=Math.max(disc,pDisc);
+    const discPrice=totDisc>0?Math.round(item.price*(1-totDisc)):null;
+    const imgSrc=getItemImage(item); const add=item.add||ADD_MAP[item.cat]||"add-custom";
+    const imgContent=imgSrc?`<img class="real-img img-loading" src="${imgSrc}" alt="${item.name}" onload="this.classList.remove('img-loading')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` :"";
+    const emojiStyle=imgSrc?"display:none":"display:flex";
     let badges="";
-    if (discPrice)  badges+=`<span class="badge badge-discount">-${Math.round(totDisc*100)}%</span>`;
-    if (pDisc>0)    badges+=`<span class="badge badge-offer">🎁 Personal</span>`;
-
-    const ribbon  = getLabelRibbon(item);
-    const tag     = item.tag||TAG_MAP[item.cat]||"tag-custom";
-    const tagLbl  = item.tagLabel||LABEL_MAP[item.cat]||item.cat;
-    const imgBg   = item.icon||ICON_MAP[item.cat]||"custom-bg";
-
+    if(discPrice)badges+=`<span class="badge badge-discount">-${Math.round(totDisc*100)}%</span>`;
+    if(pDisc>0)badges+=`<span class="badge badge-offer">🎁 Personal</span>`;
+    const ribbon=getLabelRibbon(item); const tag=item.tag||TAG_MAP[item.cat]||"tag-custom";
+    const tagLbl=item.tagLabel||LABEL_MAP[item.cat]||item.cat; const imgBg=item.icon||ICON_MAP[item.cat]||"custom-bg";
     return `<div class="menu-card" onclick="addItem('${item.name}',${item.price})">
-      <div class="card-img-area ${imgBg}">
-        ${imgContent}
-        <div class="card-emoji-fallback" style="${emojiStyle}">${item.emoji}</div>
-        ${qty>0?`<div class="qty-badge" style="display:flex">${qty}</div>`:""}
-        ${ribbon}
-      </div>
+      <div class="card-img-area ${imgBg}">${imgContent}<div class="card-emoji-fallback" style="${emojiStyle}">${item.emoji}</div>${qty>0?`<div class="qty-badge" style="display:flex">${qty}</div>`:""}${ribbon}</div>
       ${badges?`<div class="badge-row">${badges}</div>`:""}
       <div class="card-body">
         <span class="card-tag ${tag}">${tagLbl}</span>
         <div class="card-name">${item.name}</div>
         <div class="card-bottom">
-          <div class="price-col">
-            <div class="card-price">₹${discPrice||item.price}</div>
-            ${discPrice?`<div class="card-orig">₹${item.price}</div>`:""}
-          </div>
+          <div class="price-col"><div class="card-price">₹${discPrice||item.price}</div>${discPrice?`<div class="card-orig">₹${item.price}</div>`:""}</div>
           <button class="add-fab ${add}" onclick="event.stopPropagation();addItem('${item.name}',${item.price})">+</button>
         </div>
       </div>
@@ -1277,20 +1160,15 @@ function renderCustMenu() {
 //   CART LOGIC
 // ===================================================
 function addItem(name, price) {
-  const isNew = !cart[name];
-  if (cart[name]) cart[name].qty++;
-  else            cart[name]={price,qty:1};
+  const isNew=!cart[name];
+  if(cart[name])cart[name].qty++; else cart[name]={price,qty:1};
   document.querySelectorAll(".menu-card").forEach(card=>{
-    if(card.querySelector(".card-name")?.textContent===name){
-      card.classList.add("just-added");
-      setTimeout(()=>card.classList.remove("just-added"),400);
-    }
+    if(card.querySelector(".card-name")?.textContent===name){card.classList.add("just-added");setTimeout(()=>card.classList.remove("just-added"),400);}
   });
   renderCustMenu();
   if(activeCustTab==="cart")renderCustCartPanel();
   if(isNew)triggerUpsell(name);
-  checkFreeItem();
-  checkBulkDiscount();
+  checkFreeItem(); checkBulkDiscount();
 }
 
 function removeItem(name) {
@@ -1299,118 +1177,97 @@ function removeItem(name) {
   if(cart[name].qty<=0)delete cart[name];
   renderCustMenu();
   if(activeCustTab==="cart")renderCustCartPanel();
-  checkFreeItem();
-  checkBulkDiscount();
+  checkFreeItem(); checkBulkDiscount();
 }
 
 function cartTotal() {
-  const disc   = getTimeDiscount();
-  const pOffer = getPersonalOffer(currentUser?.id);
+  const disc=getTimeDiscount(); const pOffer=getPersonalOffer(currentUser?.id);
   let total=0;
   Object.keys(cart).forEach(k=>{
     if(k==="__combos"||k==="__bulk")return;
-    const item  = ITEMS.find(x=>x.name===k);
-    const pDisc = pOffer&&item&&pOffer.itemId===item.id ? pOffer.value/100 : 0;
-    const tDisc = Math.max(disc,pDisc);
-    total += cart[k].price*(1-tDisc)*cart[k].qty;
+    const item=ITEMS.find(x=>x.name===k);
+    const pDisc=pOffer&&item&&pOffer.itemId===item.id?pOffer.value/100:0;
+    const tDisc=Math.max(disc,pDisc);
+    total+=cart[k].price*(1-tDisc)*cart[k].qty;
   });
   if(cart.__combos)cart.__combos.forEach(c=>{total-=c.discount;});
-  if(cart.__bulk)  total-=cart.__bulk;
-  if(orderMode==="delivery") total += DELIVERY_CHARGE;
+  if(cart.__bulk)total-=cart.__bulk;
+  if(orderMode==="delivery")total+=DELIVERY_CHARGE;
   return Math.round(Math.max(total,0));
 }
 
 function getLoyaltyPointsForOrder(total) { return Math.floor(total*POINTS_PER_RUPEE); }
 
 function checkFreeItem() {
-  const freeOffer=getFreeItemOffer();
-  if(!freeOffer)return;
+  const freeOffer=getFreeItemOffer(); if(!freeOffer)return;
   const raw=Object.keys(cart).filter(k=>k!=="__combos"&&k!=="__bulk"&&!cart[k].free).reduce((s,k)=>s+cart[k].price*cart[k].qty,0);
   const fName=freeOffer.freeItem;
   if(raw>=freeOffer.value&&!cart[fName]){
     const fItem=ITEMS.find(x=>x.name===fName);
     cart[fName]={price:0,qty:1,free:true,originalPrice:fItem?fItem.price:0};
-    renderCustMenu();
-    if(activeCustTab==="cart")renderCustCartPanel();
-    showCelebration();
-    showNotif(`🎉 FREE ${fName} added to your cart!`,4000);
+    renderCustMenu(); if(activeCustTab==="cart")renderCustCartPanel();
+    showCelebration(); showNotif(`🎉 FREE ${fName} added to your cart!`,4000);
   }
   if(raw<freeOffer.value&&cart[fName]&&cart[fName].free){
-    delete cart[fName];
-    renderCustMenu();
-    if(activeCustTab==="cart")renderCustCartPanel();
+    delete cart[fName]; renderCustMenu(); if(activeCustTab==="cart")renderCustCartPanel();
     showNotif(`Add ₹${freeOffer.value-raw} more for FREE ${fName}`,2500);
   }
 }
 
 function checkBulkDiscount() {
-  const bulkOffer=getBulkOffer();
-  if(!bulkOffer){cart.__bulk=0;return;}
+  const bulkOffer=getBulkOffer(); if(!bulkOffer){cart.__bulk=0;return;}
   const qty=Object.keys(cart).filter(k=>k!=="__combos"&&k!=="__bulk").reduce((s,k)=>s+cart[k].qty,0);
   if(qty>=bulkOffer.value){
     const raw=Object.keys(cart).filter(k=>k!=="__combos"&&k!=="__bulk").reduce((s,k)=>s+cart[k].price*cart[k].qty,0);
     cart.__bulk=Math.round(raw*(bulkOffer.discPct/100));
-  } else { cart.__bulk=0; }
+  } else {cart.__bulk=0;}
 }
 
-function showCelebration() {
-  const cel=document.getElementById("celebration-overlay");
-  cel.classList.add("show");
-  setTimeout(()=>cel.classList.remove("show"),2500);
-}
+function showCelebration() { const cel=document.getElementById("celebration-overlay"); cel.classList.add("show"); setTimeout(()=>cel.classList.remove("show"),2500); }
 
 // ===================================================
 //   UPSELL
 // ===================================================
 const UPSELL_MAP = {
-  "Samosa Chat":      { name:"Ice Cream",        msg:"🍦 Complete your chat with Ice Cream! Only ₹30 more." },
-  "Katori Chat":      { name:"Panipuri (6 pcs)", msg:"🫧 Add Panipuri for ₹30 more? Great combo!" },
-  "Shegaon Kachori":  { name:"Ice Cream",        msg:"🍦 Top it off with Ice Cream? Just ₹30!" },
-  "Gila Wada":        { name:"Masala Chaas",     msg:"🥛 Perfect match — Masala Chaas for ₹25?" },
-  "Panipuri (6 pcs)": { name:"Ice Cream",        msg:"🍦 Add Ice Cream for ₹30 — perfect ending!" },
-  "Bhel Puri":        { name:"Lemon Sharbat",    msg:"🍋 Refreshing Lemon Sharbat for ₹25?" },
-  "Ragda Patties":    { name:"Masala Chaas",     msg:"🥛 Masala Chaas with Ragda — just ₹25!" },
-  "Aloo Tikki":       { name:"Masala Chaas",     msg:"🥛 Pair with Masala Chaas! Only ₹25 more." },
-  "Sambharwadi":      { name:"Sugarcane Juice",  msg:"🥤 Add Sugarcane Juice for ₹30? Perfect combo!" },
+  "Samosa Chat":      {name:"Ice Cream",        msg:"🍦 Complete your chat with Ice Cream! Only ₹30 more."},
+  "Katori Chat":      {name:"Panipuri (6 pcs)", msg:"🫧 Add Panipuri for ₹30 more? Great combo!"},
+  "Shegaon Kachori":  {name:"Ice Cream",        msg:"🍦 Top it off with Ice Cream? Just ₹30!"},
+  "Gila Wada":        {name:"Masala Chaas",     msg:"🥛 Perfect match — Masala Chaas for ₹25?"},
+  "Panipuri (6 pcs)": {name:"Ice Cream",        msg:"🍦 Add Ice Cream for ₹30 — perfect ending!"},
+  "Bhel Puri":        {name:"Lemon Sharbat",    msg:"🍋 Refreshing Lemon Sharbat for ₹25?"},
+  "Ragda Patties":    {name:"Masala Chaas",     msg:"🥛 Masala Chaas with Ragda — just ₹25!"},
+  "Aloo Tikki":       {name:"Masala Chaas",     msg:"🥛 Pair with Masala Chaas! Only ₹25 more."},
+  "Sambharwadi":      {name:"Sugarcane Juice",  msg:"🥤 Add Sugarcane Juice for ₹30? Perfect combo!"},
 };
 
 function triggerUpsell(name) {
-  const up=UPSELL_MAP[name];
-  if(!up||cart[up.name])return;
-  const uItem=ITEMS.find(x=>x.name===up.name);
-  if(!uItem)return;
+  const up=UPSELL_MAP[name]; if(!up||cart[up.name])return;
+  const uItem=ITEMS.find(x=>x.name===up.name); if(!uItem)return;
   pendingUpsell=uItem;
-  document.getElementById("upsell-icon").textContent =uItem.emoji;
+  document.getElementById("upsell-icon").textContent=uItem.emoji;
   document.getElementById("upsell-title").textContent=`Add ${uItem.name}?`;
-  document.getElementById("upsell-sub").textContent  =up.msg;
+  document.getElementById("upsell-sub").textContent=up.msg;
   document.getElementById("upsell-overlay").classList.add("show");
-  spawnUpsellConfetti();
-  startUpsellTimer();
+  spawnUpsellConfetti(); startUpsellTimer();
 }
 
 function startUpsellTimer() {
-  clearInterval(upsellTimerInterval);
-  let secs=10;
-  const fill=document.getElementById("upsell-timer-fill");
-  const text=document.getElementById("upsell-timer-text");
+  clearInterval(upsellTimerInterval); let secs=10;
+  const fill=document.getElementById("upsell-timer-fill"); const text=document.getElementById("upsell-timer-text");
   if(fill)fill.style.width="100%";
   upsellTimerInterval=setInterval(()=>{
-    secs--;
-    if(fill)fill.style.width=(secs/10*100)+"%";
-    if(text)text.textContent=`Offer expires in ${secs}s`;
+    secs--; if(fill)fill.style.width=(secs/10*100)+"%"; if(text)text.textContent=`Offer expires in ${secs}s`;
     if(secs<=0){clearInterval(upsellTimerInterval);closeUpsell();}
   },1000);
 }
 
 function spawnUpsellConfetti() {
-  const c=document.getElementById("upsell-confetti");
-  c.innerHTML="";
+  const c=document.getElementById("upsell-confetti"); c.innerHTML="";
   const emojis=["🎉","⭐","🎊","✨"];
   for(let i=0;i<8;i++){
     const s=document.createElement("span");
     s.style.cssText=`position:absolute;font-size:${12+Math.random()*12}px;left:${Math.random()*100}%;top:${Math.random()*100}%;opacity:0.5;animation:confetti-fall 1.5s ease forwards;animation-delay:${Math.random()*0.5}s`;
-    s.textContent=emojis[i%emojis.length];
-    c.appendChild(s);
+    s.textContent=emojis[i%emojis.length]; c.appendChild(s);
   }
 }
 
@@ -1421,103 +1278,65 @@ function closeUpsell()  { clearInterval(upsellTimerInterval); document.getElemen
 //   CART PANEL RENDER
 // ===================================================
 function renderCustCartPanel() {
-  const body   = document.getElementById("cust-panel-body");
-  const footer = document.getElementById("cust-cart-footer");
-  const keys   = Object.keys(cart).filter(k=>k!=="__combos"&&k!=="__bulk");
-
-  const freeOffer  = getFreeItemOffer();
-  const raw        = keys.filter(k=>!cart[k].free).reduce((s,k)=>s+cart[k].price*cart[k].qty,0);
-  const remaining  = freeOffer ? Math.max(freeOffer.value-raw,0) : 0;
-  const pct        = freeOffer ? Math.min((raw/freeOffer.value)*100,100) : 0;
-  let freeBarHTML  = "";
-  if(freeOffer){
-    freeBarHTML = remaining>0
-      ? `<div class="free-bar-wrap">🎁 Add <b>₹${remaining}</b> more for FREE ${freeOffer.freeItem}!<div class="free-bar-bg"><div class="free-bar-fill" style="width:${pct}%"></div></div></div>`
-      : `<div class="free-bar-wrap" style="text-align:center">🎉 FREE ${freeOffer.freeItem} unlocked! 🎊</div>`;
-  }
-
-  if(keys.length===0){
-    body.innerHTML=freeBarHTML+`<div class="cart-empty"><div class="cart-empty-icon">🛒</div><div style="font-size:13px;font-weight:600">Your cart is empty.<br><span style="color:var(--brand);font-size:12px">Add delicious items!</span></div></div>`;
-    footer.innerHTML="";
-    return;
-  }
-
+  const body=document.getElementById("cust-panel-body"); const footer=document.getElementById("cust-cart-footer");
+  const keys=Object.keys(cart).filter(k=>k!=="__combos"&&k!=="__bulk");
+  const freeOffer=getFreeItemOffer();
+  const raw=keys.filter(k=>!cart[k].free).reduce((s,k)=>s+cart[k].price*cart[k].qty,0);
+  const remaining=freeOffer?Math.max(freeOffer.value-raw,0):0;
+  const pct=freeOffer?Math.min((raw/freeOffer.value)*100,100):0;
+  let freeBarHTML="";
+  if(freeOffer){freeBarHTML=remaining>0?`<div class="free-bar-wrap">🎁 Add <b>₹${remaining}</b> more for FREE ${freeOffer.freeItem}!<div class="free-bar-bg"><div class="free-bar-fill" style="width:${pct}%"></div></div></div>`:`<div class="free-bar-wrap" style="text-align:center">🎉 FREE ${freeOffer.freeItem} unlocked! 🎊</div>`;}
+  if(keys.length===0){body.innerHTML=freeBarHTML+`<div class="cart-empty"><div class="cart-empty-icon">🛒</div><div style="font-size:13px;font-weight:600">Your cart is empty.<br><span style="color:var(--brand);font-size:12px">Add delicious items!</span></div></div>`;footer.innerHTML="";return;}
   const itemsHTML=keys.map(k=>{
     const isFree=cart[k].free;
-    return `<div class="cart-item">
-      <div class="ci-name">${k}${isFree?'<span class="ci-free">FREE</span>':""}</div>
-      <div class="qty-ctrl">
-        ${!isFree?`<button class="qbtn" onclick="removeItem('${k}')">−</button>`:""}
-        <span class="qnum">${cart[k].qty}</span>
-        ${!isFree?`<button class="qbtn" onclick="addItem('${k}',${cart[k].price})">+</button>`:""}
-      </div>
-      <div class="ci-price">${isFree?"FREE":"₹"+(cart[k].price*cart[k].qty)}</div>
-    </div>`;
+    return `<div class="cart-item"><div class="ci-name">${k}${isFree?'<span class="ci-free">FREE</span>':""}</div>
+      <div class="qty-ctrl">${!isFree?`<button class="qbtn" onclick="removeItem('${k}')">−</button>`:""}<span class="qnum">${cart[k].qty}</span>${!isFree?`<button class="qbtn" onclick="addItem('${k}',${cart[k].price})">+</button>`:""}</div>
+      <div class="ci-price">${isFree?"FREE":"₹"+(cart[k].price*cart[k].qty)}</div></div>`;
   }).join("");
-
   let discHTML="";
   if(cart.__combos)cart.__combos.forEach(c=>{discHTML+=`<div class="discount-row"><span>🔥 ${c.name}</span><span>-₹${c.discount}</span></div>`;});
   const timeDis=getTimeDiscount();
   if(timeDis>0){const amt=Math.round(raw*timeDis);discHTML+=`<div class="discount-row"><span>⚡ Happy Hours</span><span>-₹${amt}</span></div>`;}
   if(cart.__bulk&&cart.__bulk>0)discHTML+=`<div class="discount-row"><span>🛒 Bulk Discount</span><span>-₹${cart.__bulk}</span></div>`;
   if(orderMode==="delivery")discHTML+=`<div class="discount-row" style="color:var(--muted)"><span>🛵 Delivery Charge</span><span>+₹${DELIVERY_CHARGE}</span></div>`;
-
-  const orderTotal   = cartTotal();
-  const loyaltyEarn  = currentUser.id!=="guest" ? getLoyaltyPointsForOrder(orderTotal) : 0;
-  const loyaltyHTML  = loyaltyEarn>0 ? `<div class="loyalty-earn-row">🌟 You'll earn <b>${loyaltyEarn} loyalty points</b> on this order!</div>` : "";
-
-  const modeHTML = renderOrderModePanel();
-
-  body.innerHTML  = freeBarHTML+itemsHTML+loyaltyHTML+modeHTML;
-  footer.innerHTML= `
-    <div class="total-row"><span class="total-label">Total</span><span class="total-amt">₹${orderTotal}</span></div>
-    ${discHTML}
+  const orderTotal=cartTotal();
+  const loyaltyEarn=currentUser.id!=="guest"?getLoyaltyPointsForOrder(orderTotal):0;
+  const loyaltyHTML=loyaltyEarn>0?`<div class="loyalty-earn-row">🌟 You'll earn <b>${loyaltyEarn} loyalty points</b> on this order!</div>`:"";
+  const modeHTML=renderOrderModePanel();
+  body.innerHTML=freeBarHTML+itemsHTML+loyaltyHTML+modeHTML;
+  footer.innerHTML=`<div class="total-row"><span class="total-label">Total</span><span class="total-amt">₹${orderTotal}</span></div>${discHTML}
     <button class="order-btn" onclick="placeOrder()">🎟 Place Order &amp; Get Token</button>
     <button class="upi-btn" onclick="payUPI(${orderTotal})">💳 Pay via UPI — ₹${orderTotal}</button>`;
 }
 
 function renderCustQueuePanel() {
-  const body   = document.getElementById("cust-panel-body");
-  const footer = document.getElementById("cust-cart-footer");
+  const body=document.getElementById("cust-panel-body"); const footer=document.getElementById("cust-cart-footer");
   footer.innerHTML="";
-  const myOrders = currentUser.id==="guest" ? queue.slice(0,5) : queue.filter(o=>o.userId===currentUser.id);
-  if(myOrders.length===0){
-    body.innerHTML=`<div class="cart-empty"><div class="cart-empty-icon">📋</div><div style="font-size:13px">No active orders.</div></div>`;
-    return;
-  }
-  body.innerHTML=myOrders.map(o=>`
-    <div class="order-hist-item">
-      <div class="oh-top">
-        <span style="font-weight:800;color:var(--brand)">Token #${o.token}</span>
-        <span class="status-badge ${o.status==="Ready"?"status-ready":"status-prep"}">${o.status}</span>
-      </div>
-      <div class="oh-items">${Object.keys(o.items||{}).filter(k=>k!=="__combos"&&k!=="__bulk").map(k=>`${k} ×${o.items[k].qty}`).join(", ")}</div>
-      <div style="font-size:13px;font-weight:800;color:var(--green-d);margin-top:4px">₹${o.total}</div>
-      ${o.deliveryMode==="delivery"?`<div style="font-size:11px;color:var(--blue-d);margin-top:3px">🛵 Delivery to: ${o.deliveryAddress||"Address pending"}</div>`:""}
-    </div>`).join("");
+  const myOrders=currentUser.id==="guest"?queue.slice(0,5):queue.filter(o=>o.userId===currentUser.id);
+  if(myOrders.length===0){body.innerHTML=`<div class="cart-empty"><div class="cart-empty-icon">📋</div><div style="font-size:13px">No active orders.</div></div>`;return;}
+  body.innerHTML=myOrders.map(o=>`<div class="order-hist-item">
+    <div class="oh-top"><span style="font-weight:800;color:var(--brand)">Token #${o.token}</span><span class="status-badge ${o.status==="Ready"?"status-ready":"status-prep"}">${o.status}</span></div>
+    <div class="oh-items">${Object.keys(o.items||{}).filter(k=>k!=="__combos"&&k!=="__bulk").map(k=>`${k} ×${o.items[k].qty}`).join(", ")}</div>
+    <div style="font-size:13px;font-weight:800;color:var(--green-d);margin-top:4px">₹${o.total}</div>
+    ${o.deliveryMode==="delivery"?`<div style="font-size:11px;color:var(--blue-d);margin-top:3px">🛵 Delivery to: ${o.deliveryAddress||"Address pending"}</div>`:""}
+  </div>`).join("");
 }
 
 function switchCustTab(tab) {
   activeCustTab=tab;
   document.getElementById("tab-cart").classList.toggle("active",tab==="cart");
   document.getElementById("tab-queue").classList.toggle("active",tab==="queue");
-  if(tab==="cart")renderCustCartPanel();
-  else            renderCustQueuePanel();
+  if(tab==="cart")renderCustCartPanel(); else renderCustQueuePanel();
 }
 
 // ===================================================
-//   PLACE ORDER — Firebase + localStorage
+//   PLACE ORDER
 // ===================================================
 async function placeOrder() {
-  if(currentUser.id==="guest") {
-    showGuestOrderModal();
-    return;
-  }
-  const total=cartTotal();
-  if(total===0){showNotif("⚠ Cart is empty!");return;}
-
+  if(currentUser.id==="guest"){showGuestOrderModal();return;}
+  const total=cartTotal(); if(total===0){showNotif("⚠ Cart is empty!");return;}
   if(orderMode==="delivery"){
-    const addr = document.getElementById("delivery-address")?.value?.trim() || customerAddress;
+    const addr=document.getElementById("delivery-address")?.value?.trim()||customerAddress;
     if(!addr){showNotif("⚠ Please enter your delivery address!");return;}
     customerAddress=addr;
     if(customerLocation){
@@ -1525,185 +1344,108 @@ async function placeOrder() {
       if(dist>DELIVERY_RADIUS_KM){showNotif(`⚠ You're ${dist.toFixed(1)}km away. Max delivery radius is ${DELIVERY_RADIUS_KM}km.`,4000);return;}
     }
   }
-
   const keys=Object.keys(cart).filter(k=>k!=="__combos"&&k!=="__bulk");
-  const snap={};
-  keys.forEach(k=>{snap[k]={...cart[k]};});
-
-  const order = {
-    token:          orderToken++,
-    items:          snap,
-    total,
-    status:         "Preparing",
-    time:           Date.now(),
-    userId:         currentUser.id,
-    userName:       currentUser.name,
-    phone:          customers[currentUser.id]?.phone||"",
-    email:          customers[currentUser.id]?.email||"",
-    deliveryMode:   orderMode,
-    deliveryAddress:orderMode==="delivery" ? (document.getElementById("delivery-address")?.value?.trim()||customerAddress) : "",
-    deliveryLat:    customerLocation?.lat||null,
-    deliveryLng:    customerLocation?.lng||null,
+  const snap={}; keys.forEach(k=>{snap[k]={...cart[k]};});
+  const order={
+    token:orderToken++, items:snap, total, status:"Preparing", time:Date.now(),
+    userId:currentUser.id, userName:currentUser.name,
+    phone:customers[currentUser.id]?.phone||"", email:customers[currentUser.id]?.email||"",
+    deliveryMode:orderMode,
+    deliveryAddress:orderMode==="delivery"?(document.getElementById("delivery-address")?.value?.trim()||customerAddress):"",
+    deliveryLat:customerLocation?.lat||null, deliveryLng:customerLocation?.lng||null,
   };
-
-  const fbId = await saveOrderToFirebase(order);
-  if(fbId) order._docId=fbId;
-
-  queue.unshift(order);
-  orders_all.unshift(order);
-  salesLog.unshift({ time:Date.now(),total,items:snap,phone:order.phone,email:order.email,userId:currentUser.id,deliveryMode:orderMode });
-
+  const fbId=await saveOrderToFirebase(order); if(fbId)order._docId=fbId;
+  queue.unshift(order); orders_all.unshift(order);
+  salesLog.unshift({time:Date.now(),total,items:snap,phone:order.phone,email:order.email,userId:currentUser.id,deliveryMode:orderMode});
   if(currentUser.id!=="guest"&&customers[currentUser.id]){
     const cust=customers[currentUser.id];
     cust.orders=cust.orders||[];
     cust.orders.push({time:Date.now(),items:snap,total,deliveryMode:orderMode});
-    cust.totalSpent    +=total;
-    cust.visits        +=1;
-    cust.loyaltyPoints  =(cust.loyaltyPoints||0)+getLoyaltyPointsForOrder(total);
-    const chip=document.getElementById("loyalty-chip");
-    if(chip)chip.textContent=`🌟 ${cust.loyaltyPoints} pts`;
+    cust.totalSpent+=total; cust.visits+=1;
+    cust.loyaltyPoints=(cust.loyaltyPoints||0)+getLoyaltyPointsForOrder(total);
+    const chip=document.getElementById("loyalty-chip"); if(chip)chip.textContent=`🌟 ${cust.loyaltyPoints} pts`;
     checkLoyaltyMilestone(cust.loyaltyPoints,getLoyaltyPointsForOrder(total));
     if(cust.visits%3===0)setTimeout(()=>showReviewPrompt(),3000);
     saveCustomerFullToFirebase(cust);
   }
-
   save();
-  showTokenConfirmation(order.token, total, orderMode);
+  showTokenConfirmation(order.token,total,orderMode);
   showNotif(`✅ Token #${order.token} placed! ${orderMode==="delivery"?"🛵 Delivery!":"🏪 Pickup!"}`,3000);
-
-  if(typeof logEvent==="function"&&typeof analytics!=="undefined"){
-    logEvent(analytics,"purchase",{value:total,currency:"INR",items:Object.keys(snap)});
-  }
-
-  cart={};
-  orderMode="pickup";
-  customerAddress="";
-  customerLocation=null;
-  renderCustMenu();
-  renderCustCartPanel();
+  if(typeof logEvent==="function"&&typeof analytics!=="undefined"){logEvent(analytics,"purchase",{value:total,currency:"INR",items:Object.keys(snap)});}
+  cart={}; orderMode="pickup"; customerAddress=""; customerLocation=null;
+  renderCustMenu(); renderCustCartPanel();
   setTimeout(()=>switchCustTab("queue"),3000);
 }
 
-function checkLoyaltyMilestone(totalPoints, earned) {
+function checkLoyaltyMilestone(totalPoints,earned) {
   const milestone=REWARD_TIERS.find(t=>totalPoints>=t.points&&(totalPoints-earned)<t.points);
   if(!milestone)return;
   const overlay=document.getElementById("loyalty-overlay");
-  document.getElementById("loyalty-icon").textContent =milestone.icon;
+  document.getElementById("loyalty-icon").textContent=milestone.icon;
   document.getElementById("loyalty-title").textContent=`${milestone.points} points reached!`;
-  document.getElementById("loyalty-sub").textContent  =`Reward unlocked: ${milestone.reward} 🎉`;
+  document.getElementById("loyalty-sub").textContent=`Reward unlocked: ${milestone.reward} 🎉`;
   overlay.classList.add("show");
 }
-
 function closeLoyaltyPopup() { document.getElementById("loyalty-overlay").classList.remove("show"); }
 
 // ===================================================
-//   ✅ UPI PAYMENT MODAL — tztejaszombade@oksbi
+//   UPI PAYMENT MODAL
 // ===================================================
 function payUPI(amount) {
-  if (!amount || amount <= 0) {
-    amount = cartTotal();
-  }
-  if (amount <= 0) {
-    showNotif("⚠ Cart is empty!");
-    return;
-  }
+  if(!amount||amount<=0)amount=cartTotal();
+  if(amount<=0){showNotif("⚠ Cart is empty!");return;}
   showUPIModal(amount);
 }
 
 function showUPIModal(amount) {
-  const existing = document.getElementById("upi-payment-modal");
-  if (existing) existing.remove();
-
-  const upiString = `upi://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR&tn=${encodeURIComponent("SV Chat Center Order")}`;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiString)}&color=1a0a2e&bgcolor=ffffff&margin=10`;
-
-  const modal = document.createElement("div");
-  modal.id = "upi-payment-modal";
-  modal.className = "modal-overlay show";
-  modal.onclick = (e) => { if (e.target === modal) closeUPIModal(); };
-
-  modal.innerHTML = `
-    <div class="upi-modal-card" onclick="event.stopPropagation()">
-      <div class="upi-modal-header">
-        <div class="upi-modal-title">💳 Pay via UPI</div>
-        <div class="upi-modal-amount">₹${amount}</div>
-        <div class="upi-modal-payto">Pay to <b>${UPI_CONFIG.name}</b> • SV Chat Center</div>
-      </div>
-      <div class="upi-qr-wrap">
-        <img class="upi-qr-img" src="${qrUrl}" alt="UPI QR Code"
-          onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(UPI_CONFIG.upiId)}&margin=10'">
-        <div class="upi-qr-label">Scan with any UPI app</div>
-      </div>
-      <div class="upi-divider"><span>or pay using UPI ID</span></div>
-      <div class="upi-id-box">
-        <div class="upi-id-value">${UPI_CONFIG.upiId}</div>
-        <button class="upi-copy-btn" onclick="copyUPIId()" id="upi-copy-btn">📋 Copy</button>
-      </div>
-      <div class="upi-number-note">
-        📱 UPI Number: <b>${UPI_CONFIG.upiNum}</b> &nbsp;|&nbsp; <b>${UPI_CONFIG.name}</b>
-      </div>
-      <div class="upi-app-grid">
-        <a href="gpay://upi/pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn gpay-btn">
-          <span class="upi-app-icon">G</span> Google Pay
-        </a>
-        <a href="phonepe://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn phonepe-btn">
-          <span class="upi-app-icon">P</span> PhonePe
-        </a>
-        <a href="paytmmp://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn paytm-btn">
-          <span class="upi-app-icon">₿</span> Paytm
-        </a>
-        <a href="${upiString}" class="upi-app-btn any-upi-btn">
-          <span class="upi-app-icon">↗</span> Any UPI App
-        </a>
-      </div>
-      <button class="upi-paid-btn" onclick="confirmUPIPayment(${amount})">
-        ✅ I've Paid ₹${amount}
-      </button>
-      <button class="upi-cancel-btn" onclick="closeUPIModal()">Cancel</button>
-      <div class="upi-footer-note">
-        After paying, tap "I've Paid" to place your order &amp; get a token
-      </div>
-    </div>`;
-
+  const existing=document.getElementById("upi-payment-modal"); if(existing)existing.remove();
+  const upiString=`upi://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR&tn=${encodeURIComponent("SV Chat Center Order")}`;
+  const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiString)}&color=1a0a2e&bgcolor=ffffff&margin=10`;
+  const modal=document.createElement("div");
+  modal.id="upi-payment-modal"; modal.className="modal-overlay show";
+  modal.onclick=(e)=>{if(e.target===modal)closeUPIModal();};
+  modal.innerHTML=`<div class="upi-modal-card" onclick="event.stopPropagation()">
+    <div class="upi-modal-header"><div class="upi-modal-title">💳 Pay via UPI</div><div class="upi-modal-amount">₹${amount}</div><div class="upi-modal-payto">Pay to <b>${UPI_CONFIG.name}</b> • SV Chat Center</div></div>
+    <div class="upi-qr-wrap"><img class="upi-qr-img" src="${qrUrl}" alt="UPI QR Code" onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(UPI_CONFIG.upiId)}&margin=10'"><div class="upi-qr-label">Scan with any UPI app</div></div>
+    <div class="upi-divider"><span>or pay using UPI ID</span></div>
+    <div class="upi-id-box"><div class="upi-id-value">${UPI_CONFIG.upiId}</div><button class="upi-copy-btn" onclick="copyUPIId()" id="upi-copy-btn">📋 Copy</button></div>
+    <div class="upi-number-note">📱 UPI Number: <b>${UPI_CONFIG.upiNum}</b> &nbsp;|&nbsp; <b>${UPI_CONFIG.name}</b></div>
+    <div class="upi-app-grid">
+      <a href="gpay://upi/pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn gpay-btn"><span class="upi-app-icon">G</span> Google Pay</a>
+      <a href="phonepe://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn phonepe-btn"><span class="upi-app-icon">P</span> PhonePe</a>
+      <a href="paytmmp://pay?pa=${UPI_CONFIG.upiId}&pn=${encodeURIComponent(UPI_CONFIG.name)}&am=${amount}&cu=INR" class="upi-app-btn paytm-btn"><span class="upi-app-icon">₿</span> Paytm</a>
+      <a href="${upiString}" class="upi-app-btn any-upi-btn"><span class="upi-app-icon">↗</span> Any UPI App</a>
+    </div>
+    <button class="upi-paid-btn" onclick="confirmUPIPayment(${amount})">✅ I've Paid ₹${amount}</button>
+    <button class="upi-cancel-btn" onclick="closeUPIModal()">Cancel</button>
+    <div class="upi-footer-note">After paying, tap "I've Paid" to place your order &amp; get a token</div>
+  </div>`;
   document.body.appendChild(modal);
 }
 
-function closeUPIModal() {
-  const modal = document.getElementById("upi-payment-modal");
-  if (modal) modal.remove();
-}
+function closeUPIModal() { const modal=document.getElementById("upi-payment-modal"); if(modal)modal.remove(); }
 
 function copyUPIId() {
-  const upiId = UPI_CONFIG.upiId;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(upiId).then(() => {
-      const btn = document.getElementById("upi-copy-btn");
-      if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy"; }, 2000); }
-      showNotif("✅ UPI ID copied: " + upiId);
-    }).catch(() => fallbackCopy(upiId));
-  } else {
-    fallbackCopy(upiId);
-  }
+  const upiId=UPI_CONFIG.upiId;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(upiId).then(()=>{
+      const btn=document.getElementById("upi-copy-btn");
+      if(btn){btn.textContent="✅ Copied!";setTimeout(()=>{btn.textContent="📋 Copy";},2000);}
+      showNotif("✅ UPI ID copied: "+upiId);
+    }).catch(()=>fallbackCopy(upiId));
+  } else { fallbackCopy(upiId); }
 }
 
 function fallbackCopy(text) {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.cssText = "position:fixed;top:-9999px;opacity:0";
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  document.body.removeChild(ta);
-  showNotif("✅ UPI ID copied: " + text);
-  const btn = document.getElementById("upi-copy-btn");
-  if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => { btn.textContent = "📋 Copy"; }, 2000); }
+  const ta=document.createElement("textarea"); ta.value=text;
+  ta.style.cssText="position:fixed;top:-9999px;opacity:0";
+  document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+  showNotif("✅ UPI ID copied: "+text);
+  const btn=document.getElementById("upi-copy-btn");
+  if(btn){btn.textContent="✅ Copied!";setTimeout(()=>{btn.textContent="📋 Copy";},2000);}
 }
 
-function confirmUPIPayment(amount) {
-  closeUPIModal();
-  showNotif("💳 UPI Payment confirmed! Placing your order...", 2000);
-  setTimeout(() => placeOrder(), 500);
-}
+function confirmUPIPayment(amount) { closeUPIModal(); showNotif("💳 UPI Payment confirmed! Placing your order...",2000); setTimeout(()=>placeOrder(),500); }
 
 // ===================================================
 //   REVIEW SYSTEM
@@ -1713,10 +1455,7 @@ function closeReview()      { document.getElementById("review-overlay").classLis
 
 function setRating(n) {
   currentRating=n;
-  document.querySelectorAll(".star").forEach((s,i)=>{
-    s.textContent=i<n?"⭐":"☆";
-    s.classList.toggle("active",i<n);
-  });
+  document.querySelectorAll(".star").forEach((s,i)=>{s.textContent=i<n?"⭐":"☆";s.classList.toggle("active",i<n);});
 }
 
 function submitReview() {
@@ -1733,18 +1472,19 @@ function submitReview() {
 }
 
 // ===================================================
-//   ADMIN TABS
+//   ADMIN TABS — includes "payments"
 // ===================================================
 function switchAdminTab(tab) {
   activeAdminTab=tab;
-  ["dashboard","menu","offers","customers","orders","analytics","marketing"].forEach(t=>{
+  ["dashboard","menu","offers","customers","orders","analytics","marketing","payments"].forEach(t=>{
     const el=document.getElementById(`anav-${t}`);
     if(el)el.classList.toggle("active",t===tab);
   });
   const renders={
     dashboard:renderAdminDashboard, menu:renderAdminMenu, offers:renderAdminOffers,
     customers:renderAdminCustomers, orders:renderAdminOrders,
-    analytics:renderAdminAnalytics, marketing:renderAdminMarketing
+    analytics:renderAdminAnalytics, marketing:renderAdminMarketing,
+    payments:renderAdminPayments
   };
   if(renders[tab])renders[tab]();
 }
@@ -1760,27 +1500,21 @@ function getPeriodLogs(period) {
 //   ADMIN DASHBOARD
 // ===================================================
 function renderAdminDashboard() {
-  const logs        = getPeriodLogs(adminPeriod);
-  const totalSales  = logs.reduce((s,l)=>s+l.total,0);
-  const totalOrders = logs.length;
-  const avgOrder    = totalOrders ? Math.round(totalSales/totalOrders) : 0;
-  const totalCusts  = Object.keys(customers).length;
-  const repeatCusts = Object.values(customers).filter(c=>c.visits>1).length;
-  const queueLen    = queue.filter(q=>q.status==="Preparing").length;
-  const totalPoints = Object.values(customers).reduce((s,c)=>s+(c.loyaltyPoints||0),0);
-  const delivOrders = logs.filter(l=>l.deliveryMode==="delivery").length;
-
+  const logs=getPeriodLogs(adminPeriod);
+  const totalSales=logs.reduce((s,l)=>s+l.total,0);
+  const totalOrders=logs.length;
+  const avgOrder=totalOrders?Math.round(totalSales/totalOrders):0;
+  const totalCusts=Object.keys(customers).length;
+  const repeatCusts=Object.values(customers).filter(c=>c.visits>1).length;
+  const queueLen=queue.filter(q=>q.status==="Preparing").length;
+  const totalPoints=Object.values(customers).reduce((s,c)=>s+(c.loyaltyPoints||0),0);
+  const delivOrders=logs.filter(l=>l.deliveryMode==="delivery").length;
   const itemCounts={};
-  logs.forEach(l=>Object.keys(l.items||{}).forEach(k=>{
-    if(k==="__combos"||k==="__bulk")return;
-    itemCounts[k]=(itemCounts[k]||0)+(l.items[k].qty||0);
-  }));
+  logs.forEach(l=>Object.keys(l.items||{}).forEach(k=>{if(k==="__combos"||k==="__bulk")return;itemCounts[k]=(itemCounts[k]||0)+(l.items[k].qty||0);}));
   const topItems=Object.entries(itemCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-
   const hourly=new Array(24).fill(0);
   logs.forEach(l=>{hourly[new Date(l.time).getHours()]+=l.total;});
   const peakHour=hourly.indexOf(Math.max(...hourly));
-
   let days,getGroup;
   if(adminPeriod==="today")      {days=["12a","4a","8a","12p","4p","8p"];getGroup=l=>Math.floor(new Date(l.time).getHours()/4);}
   else if(adminPeriod==="week")  {days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];getGroup=l=>new Date(l.time).getDay();}
@@ -1788,55 +1522,30 @@ function renderAdminDashboard() {
   const barData=new Array(days.length).fill(0);
   logs.forEach(l=>{const g=getGroup(l);if(g>=0&&g<days.length)barData[g]+=l.total;});
   const maxBar=Math.max(...barData,1);
-
-  const periodBtns=["today","week","month"].map(p=>
-    `<button class="period-btn${adminPeriod===p?" active":""}" onclick="setAdminPeriod('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`
-  ).join("");
-
-  const barsHTML=barData.map((v,i)=>`
-    <div class="bar-col">
-      <div class="bar-val">${v>0?"₹"+v:""}</div>
-      <div class="bar" style="height:${Math.round((v/maxBar)*86)+4}px;background:${v>0?"var(--admin)":"#dde8f5"}"></div>
-      <div class="bar-label">${days[i]}</div>
-    </div>`).join("");
-
-  const topHTML=topItems.length>0
-    ? topItems.map(([name,qty],i)=>{const item=ITEMS.find(x=>x.name===name);return`<div class="order-row"><div style="width:22px;height:22px;border-radius:50%;background:var(--admin);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center">${i+1}</div><div style="flex:1;font-size:13px;font-weight:600">${item?item.emoji+" ":""}${name}</div><div style="font-size:12px;color:var(--muted)">${qty} sold</div><div style="font-size:13px;font-weight:800;color:var(--green-d)">₹${qty*(item?item.price:0)}</div></div>`;}).join("")
-    : `<div class="empty-state">No sales data yet.</div>`;
-
+  const periodBtns=["today","week","month"].map(p=>`<button class="period-btn${adminPeriod===p?" active":""}" onclick="setAdminPeriod('${p}')">${p[0].toUpperCase()+p.slice(1)}</button>`).join("");
+  const barsHTML=barData.map((v,i)=>`<div class="bar-col"><div class="bar-val">${v>0?"₹"+v:""}</div><div class="bar" style="height:${Math.round((v/maxBar)*86)+4}px;background:${v>0?"var(--admin)":"#dde8f5"}"></div><div class="bar-label">${days[i]}</div></div>`).join("");
+  const topHTML=topItems.length>0?topItems.map(([name,qty],i)=>{const item=ITEMS.find(x=>x.name===name);return`<div class="order-row"><div style="width:22px;height:22px;border-radius:50%;background:var(--admin);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center">${i+1}</div><div style="flex:1;font-size:13px;font-weight:600">${item?item.emoji+" ":""}${name}</div><div style="font-size:12px;color:var(--muted)">${qty} sold</div><div style="font-size:13px;font-weight:800;color:var(--green-d)">₹${qty*(item?item.price:0)}</div></div>`;}).join(""):`<div class="empty-state">No sales data yet.</div>`;
   const contact=getActiveContact();
   const fbConnected=isFirebaseReady();
-  const fbStatusPanel=`
-    <div class="fb-checker-panel ${fbConnected?"fb-ok":"fb-warn"}">
-      <div class="fb-checker-header">
-        <span class="fb-checker-icon">${fbConnected?"🔥":"⚠️"}</span>
-        <span class="fb-checker-title">${fbConnected?"Firebase Connected ✅":"Firebase Not Ready ⚠️"}</span>
-        <button class="fb-test-btn" onclick="runFirebaseConnectionTest()">🔍 Run Test</button>
-      </div>
-      <div class="fb-checker-grid">
-        <div class="fb-check-item ${fbConnected?"ok":"fail"}">${fbConnected?"✅":"❌"} Firestore DB</div>
-        <div class="fb-check-item ${fbConnected?"ok":"fail"}">${fbConnected?"✅":"❌"} Real-time Sync</div>
-        <div class="fb-check-item ${fbConnected?"ok":"fail"}">${fbConnected?"✅":"❌"} Customer Data</div>
-        <div class="fb-check-item ok">✅ Local Storage (fallback)</div>
-      </div>
-      <div id="fb-test-result"></div>
-    </div>`;
-
-  const upiCard = `
-    <div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
-      <div class="a-card-title" style="color:var(--green-d)">💳 UPI Collection Details</div>
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <div>
-          <div style="font-size:18px;font-weight:800;color:var(--green-d)">${UPI_CONFIG.upiId}</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">📱 ${UPI_CONFIG.upiNum} • ${UPI_CONFIG.name}</div>
-        </div>
-      </div>
-    </div>`;
-
+  const fbStatusPanel=`<div class="fb-checker-panel ${fbConnected?"fb-ok":"fb-warn"}">
+    <div class="fb-checker-header"><span class="fb-checker-icon">${fbConnected?"🔥":"⚠️"}</span><span class="fb-checker-title">${fbConnected?"Firebase Connected ✅":"Firebase Not Ready ⚠️"}</span><button class="fb-test-btn" onclick="runFirebaseConnectionTest()">🔍 Run Test</button></div>
+    <div class="fb-checker-grid">
+      <div class="fb-check-item ${fbConnected?"ok":"fail"}">${fbConnected?"✅":"❌"} Firestore DB</div>
+      <div class="fb-check-item ${fbConnected?"ok":"fail"}">${fbConnected?"✅":"❌"} Real-time Sync</div>
+      <div class="fb-check-item ${fbConnected?"ok":"fail"}">${fbConnected?"✅":"❌"} Customer Data</div>
+      <div class="fb-check-item ok">✅ Local Storage (fallback)</div>
+    </div>
+    <div id="fb-test-result"></div>
+  </div>`;
+  const upiCard=`<div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
+    <div class="a-card-title" style="color:var(--green-d)">💳 UPI Collection Details</div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div><div style="font-size:18px;font-weight:800;color:var(--green-d)">${UPI_CONFIG.upiId}</div><div style="font-size:12px;color:var(--muted);margin-top:2px">📱 ${UPI_CONFIG.upiNum} • ${UPI_CONFIG.name}</div></div>
+    </div>
+  </div>`;
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">📊 Sales Dashboard</div>
-    ${fbStatusPanel}
-    ${upiCard}
+    ${fbStatusPanel}${upiCard}
     <div class="a-card" style="background:linear-gradient(135deg,#e8f0fe,#d5e8ff);border-color:var(--admin)">
       <div class="a-card-title">📞 Active Customer Contact Number</div>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1857,10 +1566,7 @@ function renderAdminDashboard() {
       <div class="a-stat-card"><div class="a-stat-label">🌟 Loyalty Pts</div><div class="a-stat-val orange">${totalPoints}</div></div>
       <div class="a-stat-card"><div class="a-stat-label">🛵 Deliveries</div><div class="a-stat-val blue">${delivOrders}</div></div>
     </div>
-    <div class="a-chart-wrap">
-      <div class="a-chart-title">Revenue by ${adminPeriod==="today"?"Hour":"Period"}</div>
-      <div class="bar-chart">${barsHTML}</div>
-    </div>
+    <div class="a-chart-wrap"><div class="a-chart-title">Revenue by ${adminPeriod==="today"?"Hour":"Period"}</div><div class="bar-chart">${barsHTML}</div></div>
     <div class="insight-box">
       <div class="insight-title">🧠 Business Insights</div>
       <div class="insight-row"><div class="insight-dot"></div> Peak hour: <b>${peakHour}:00–${peakHour+1}:00</b></div>
@@ -1880,136 +1586,71 @@ async function runFirebaseConnectionTest() {
   if(!resultEl){showNotif("Run from Dashboard");return;}
   resultEl.innerHTML=`<div class="fb-step note">🔄 Running connection test...</div>`;
   const steps=[];
-  if(typeof db!=="undefined"){
-    steps.push({ok:true,msg:"<b>db</b> object found ✅ — Firestore initialised"});
-  } else {
-    steps.push({ok:false,msg:"<b>db</b> not found ❌ — Firebase SDK not loaded yet"});
-    renderSteps(steps,resultEl);return;
-  }
-  if(typeof firebaseAPI!=="undefined"&&firebaseAPI.addDoc){
-    steps.push({ok:true,msg:"<b>firebaseAPI</b> ready ✅"});
-  } else {
-    steps.push({ok:false,msg:"<b>firebaseAPI</b> missing ❌"});
-    renderSteps(steps,resultEl);return;
-  }
-  steps.push({ok:true,msg:"🔄 Writing test ping..."});
-  renderSteps(steps,resultEl);
+  if(typeof db!=="undefined"){steps.push({ok:true,msg:"<b>db</b> object found ✅ — Firestore initialised"});}
+  else{steps.push({ok:false,msg:"<b>db</b> not found ❌ — Firebase SDK not loaded yet"});renderSteps(steps,resultEl);return;}
+  if(typeof firebaseAPI!=="undefined"&&firebaseAPI.addDoc){steps.push({ok:true,msg:"<b>firebaseAPI</b> ready ✅"});}
+  else{steps.push({ok:false,msg:"<b>firebaseAPI</b> missing ❌"});renderSteps(steps,resultEl);return;}
+  steps.push({ok:true,msg:"🔄 Writing test ping..."});renderSteps(steps,resultEl);
   try {
     const {addDoc,collection}=firebaseAPI;
     const docRef=await addDoc(collection(db,"_connection_test"),{ping:true,time:Date.now()});
-    steps.pop();
-    steps.push({ok:true,msg:`✅ Write succeeded! Doc ID: <code>${docRef.id}</code>`});
-    if(firebaseAPI.deleteDoc&&firebaseAPI.doc){
-      await firebaseAPI.deleteDoc(firebaseAPI.doc(db,"_connection_test",docRef.id));
-      steps.push({ok:true,msg:"✅ Test document cleaned up"});
-    }
-    steps.push({ok:true,msg:"🎉 <b>Firebase fully working!</b> Customer data & orders sync in real-time."});
+    steps.pop(); steps.push({ok:true,msg:`✅ Write succeeded! Doc ID: <code>${docRef.id}</code>`});
+    if(firebaseAPI.deleteDoc&&firebaseAPI.doc){await firebaseAPI.deleteDoc(firebaseAPI.doc(db,"_connection_test",docRef.id));steps.push({ok:true,msg:"✅ Test document cleaned up"});}
+    steps.push({ok:true,msg:"🎉 <b>Firebase fully working!</b>"});
   } catch(e) {
-    steps.pop();
-    steps.push({ok:false,msg:`❌ Write FAILED: ${e.message}`});
+    steps.pop(); steps.push({ok:false,msg:`❌ Write FAILED: ${e.message}`});
     if(e.message.includes("permission"))steps.push({ok:"note",msg:"💡 Fix Firestore rules: allow read, write: if true"});
   }
   renderSteps(steps,resultEl);
 }
 
 function renderSteps(steps,el) {
-  el.innerHTML=steps.map(s=>
-    `<div class="fb-step ${s.ok===true?"ok":s.ok===false?"fail":"note"}">${s.ok===true?"🟢":s.ok===false?"🔴":"💡"} ${s.msg}</div>`
-  ).join("");
+  el.innerHTML=steps.map(s=>`<div class="fb-step ${s.ok===true?"ok":s.ok===false?"fail":"note"}">${s.ok===true?"🟢":s.ok===false?"🔴":"💡"} ${s.msg}</div>`).join("");
 }
 
 // ===================================================
 //   ADMIN MENU
 // ===================================================
 function getAllCatOptions(selectedCat) {
-  const baseCats = [
-    { id:"chat",      label:"🥗 Chat"       },
-    { id:"panipuri",  label:"🫧 Panipuri"   },
-    { id:"kachori",   label:"🫓 Kachori"    },
-    { id:"wada",      label:"🫔 Wada"       },
-    { id:"ice",       label:"🍦 Ice Cream"  },
-    { id:"beverages", label:"🥤 Beverages"  },
-    { id:"snacks",    label:"🍟 Snacks"     },
-  ];
-
-  let html = baseCats.map(c =>
-    `<option value="${c.id}"${selectedCat===c.id?" selected":""}>${c.label}</option>`
-  ).join("");
-
-  if (customCategories.length > 0) {
-    html += `<optgroup label="── Custom ──">`;
-    html += customCategories.map(c =>
-      `<option value="${c.id}"${selectedCat===c.id?" selected":""}>${c.emoji} ${c.name}</option>`
-    ).join("");
-    html += `</optgroup>`;
-  }
-
-  html += `<option value="__new" style="color:#e74c3c;font-weight:700">➕ + Add New Category</option>`;
+  const baseCats=[{id:"chat",label:"🥗 Chat"},{id:"panipuri",label:"🫧 Panipuri"},{id:"kachori",label:"🫓 Kachori"},{id:"wada",label:"🫔 Wada"},{id:"ice",label:"🍦 Ice Cream"},{id:"beverages",label:"🥤 Beverages"},{id:"snacks",label:"🍟 Snacks"}];
+  let html=baseCats.map(c=>`<option value="${c.id}"${selectedCat===c.id?" selected":""}>${c.label}</option>`).join("");
+  if(customCategories.length>0){html+=`<optgroup label="── Custom ──">`;html+=customCategories.map(c=>`<option value="${c.id}"${selectedCat===c.id?" selected":""}>${c.emoji} ${c.name}</option>`).join("");html+=`</optgroup>`;}
+  html+=`<option value="__new" style="color:#e74c3c;font-weight:700">➕ + Add New Category</option>`;
   return html;
 }
 
-function handleCatDropdownChange(selectEl) {
-  if (selectEl.value === "__new") {
-    selectEl.value = "chat";
-    promptAddCategory();
-  }
-}
+function handleCatDropdownChange(selectEl) { if(selectEl.value==="__new"){selectEl.value="chat";promptAddCategory();} }
 
 function renderAdminMenu() {
-  const rows = ITEMS.map(item => {
-    const imgSrc   = getItemImage(item);
-    const labelDef = ITEM_LABELS.find(l=>l.value===item.label)||ITEM_LABELS[0];
+  const rows=ITEMS.map(item=>{
+    const imgSrc=getItemImage(item); const labelDef=ITEM_LABELS.find(l=>l.value===item.label)||ITEM_LABELS[0];
     return `<div class="menu-mgmt-row">
       <div onclick="openImageModal('${item.id}')" title="Click to upload image" style="cursor:pointer">
-        ${imgSrc
-          ? `<img class="admin-item-img" src="${imgSrc}" alt="${item.name}"/>`
-          : `<div class="admin-item-emoji"><span>${item.emoji}</span><div class="upload-hint">📷 Add</div></div>`
-        }
+        ${imgSrc?`<img class="admin-item-img" src="${imgSrc}" alt="${item.name}"/>`:`<div class="admin-item-emoji"><span>${item.emoji}</span><div class="upload-hint">📷 Add</div></div>`}
       </div>
-      <div class="mmr-info">
-        <div class="mmr-name">${item.name}</div>
-        <div class="mmr-cat">${item.tagLabel||item.cat}
-          <span class="label-ribbon label-${item.label||"none"}" style="position:static;margin-left:4px">${labelDef.ribbon}</span>
-        </div>
-      </div>
-      <select class="a-select" id="label-sel-${item.id}" onchange="saveItemLabel('${item.id}')" style="width:130px;font-size:11px;padding:5px 8px">
-        ${ITEM_LABELS.map(l=>`<option value="${l.value}"${item.label===l.value?" selected":""}>${l.label}</option>`).join("")}
-      </select>
+      <div class="mmr-info"><div class="mmr-name">${item.name}</div><div class="mmr-cat">${item.tagLabel||item.cat}<span class="label-ribbon label-${item.label||"none"}" style="position:static;margin-left:4px">${labelDef.ribbon}</span></div></div>
+      <select class="a-select" id="label-sel-${item.id}" onchange="saveItemLabel('${item.id}')" style="width:130px;font-size:11px;padding:5px 8px">${ITEM_LABELS.map(l=>`<option value="${l.value}"${item.label===l.value?" selected":""}>${l.label}</option>`).join("")}</select>
       <input class="price-input" id="price-${item.id}" value="${item.price}" type="number" min="1" max="9999">
       <button class="save-price-btn" onclick="savePrice('${item.id}')">Save</button>
       <button class="del-btn" onclick="deleteItem('${item.id}')">✕</button>
     </div>`;
   }).join("");
-
-  const labelOptions = ITEM_LABELS.map(l=>`<option value="${l.value}">${l.label}</option>`).join("");
-
+  const labelOptions=ITEM_LABELS.map(l=>`<option value="${l.value}">${l.label}</option>`).join("");
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">🍽 Menu Management</div>
     <div class="a-card">
       <div class="a-card-title">📂 Custom Categories (${customCategories.length} added)</div>
-      ${customCategories.length>0
-        ? customCategories.map(c=>`<div class="menu-mgmt-row">
-            <span style="font-size:22px">${c.emoji}</span>
-            <span class="mmr-name" style="flex:1">${c.name}</span>
-            <button class="del-btn" onclick="deleteCustomCategory('${c.id}')">✕ Remove</button>
-          </div>`).join("")
-        : `<div style="font-size:13px;color:var(--muted);padding:8px 0">No custom categories yet.</div>`
-      }
+      ${customCategories.length>0?customCategories.map(c=>`<div class="menu-mgmt-row"><span style="font-size:22px">${c.emoji}</span><span class="mmr-name" style="flex:1">${c.name}</span><button class="del-btn" onclick="deleteCustomCategory('${c.id}')">✕ Remove</button></div>`).join(""):`<div style="font-size:13px;color:var(--muted);padding:8px 0">No custom categories yet.</div>`}
       <button class="a-btn" style="margin-top:10px;font-size:12px;padding:7px 16px" onclick="promptAddCategory()">➕ Add New Category</button>
     </div>
-    <div class="a-card">
-      <div class="a-card-title">Current Menu (${ITEMS.length} items)</div>
-      ${rows}
-    </div>
+    <div class="a-card"><div class="a-card-title">Current Menu (${ITEMS.length} items)</div>${rows}</div>
     <div class="a-card">
       <div class="a-card-title">➕ Add New Item</div>
       <div class="add-item-form">
-        <input class="a-input" id="new-name"  placeholder="Item name">
+        <input class="a-input" id="new-name" placeholder="Item name">
         <input class="a-input" id="new-price" placeholder="Price (₹)" type="number" min="1">
         <input class="a-input" id="new-emoji" placeholder="Emoji (e.g. 🍛)">
-        <select class="a-select" id="new-cat" onchange="handleCatDropdownChange(this)">
-          ${getAllCatOptions()}
-        </select>
+        <select class="a-select" id="new-cat" onchange="handleCatDropdownChange(this)">${getAllCatOptions()}</select>
         <select class="a-select" id="new-label">${labelOptions}</select>
         <input class="a-input" id="new-imgurl" placeholder="Image URL (optional)">
       </div>
@@ -2019,19 +1660,14 @@ function renderAdminMenu() {
       </div>
     </div>
     <div class="a-card">
-      <div class="a-card-title">🔥 Combo Management</div>
-      ${renderComboRows()}
+      <div class="a-card-title">🔥 Combo Management</div>${renderComboRows()}
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
         <div class="a-card-title">➕ Add New Combo</div>
         <div class="add-item-form">
-          <input class="a-input" id="new-combo-name"  placeholder="Combo name">
+          <input class="a-input" id="new-combo-name" placeholder="Combo name">
           <input class="a-input" id="new-combo-emoji" placeholder="Emoji">
           <input class="a-input" id="new-combo-price" placeholder="Combo price (₹)" type="number">
-          <select class="a-select" id="new-combo-label">
-            <option value="">No label</option>
-            <option value="popular">🔥 Most Popular</option>
-            <option value="value">💸 Best Value</option>
-          </select>
+          <select class="a-select" id="new-combo-label"><option value="">No label</option><option value="popular">🔥 Most Popular</option><option value="value">💸 Best Value</option></select>
           <input class="a-input offer-form-full" id="new-combo-items" placeholder="Item IDs comma-separated (e.g. i1,i6)">
         </div>
         <button class="a-btn a-btn-green" style="margin-top:10px" onclick="addNewCombo()">➕ Add Combo</button>
@@ -2039,81 +1675,46 @@ function renderAdminMenu() {
     </div>`;
 }
 
-function saveItemLabel(id) {
-  const val  = document.getElementById(`label-sel-${id}`)?.value;
-  const item = ITEMS.find(x=>x.id===id);
-  if(item){item.label=val;save();showNotif(`✅ Label updated for ${item.name}`);renderAdminMenu();}
-}
-
-function deleteCustomCategory(id) {
-  customCategories=customCategories.filter(c=>c.id!==id);
-  rebuildCats();save();renderAdminMenu();showNotif("Category removed");
-}
+function saveItemLabel(id){const val=document.getElementById(`label-sel-${id}`)?.value;const item=ITEMS.find(x=>x.id===id);if(item){item.label=val;save();showNotif(`✅ Label updated for ${item.name}`);renderAdminMenu();}}
+function deleteCustomCategory(id){customCategories=customCategories.filter(c=>c.id!==id);rebuildCats();save();renderAdminMenu();showNotif("Category removed");}
 
 async function syncMenuToFirebase() {
   if(!isFirebaseReady())return showNotif("Firebase not ready");
   showLoader(true);
-  try {
-    for(const item of ITEMS){
-      const {addDoc,collection}=firebaseAPI;
-      await addDoc(collection(db,"menu_items"),item);
-    }
-    showNotif(`✅ ${ITEMS.length} items synced to Firebase!`);
-  }catch(e){showNotif("Sync error: "+e.message);}
-  finally{showLoader(false);}
+  try{for(const item of ITEMS){const {addDoc,collection}=firebaseAPI;await addDoc(collection(db,"menu_items"),item);}showNotif(`✅ ${ITEMS.length} items synced to Firebase!`);}
+  catch(e){showNotif("Sync error: "+e.message);}finally{showLoader(false);}
 }
 
 function renderComboRows() {
   if(combos.length===0)return`<div class="empty-state">No combos yet.</div>`;
-  return combos.map(c=>`
-    <div class="menu-mgmt-row">
-      <div style="font-size:24px;width:40px;text-align:center">${c.emoji}</div>
-      <div class="mmr-info">
-        <div class="mmr-name">${c.name}</div>
-        <div class="mmr-cat">${c.itemIds.map(id=>{const it=ITEMS.find(x=>x.id===id);return it?it.name:"";}).join(" + ")}</div>
-      </div>
-      <input class="price-input" id="combo-price-${c.id}" value="${c.price}" type="number" min="1">
-      <button class="save-price-btn" onclick="saveComboPrice('${c.id}')">Save</button>
-      <button class="toggle-btn ${c.active?"toggle-on":"toggle-off"}" onclick="toggleCombo('${c.id}')">${c.active?"ON":"OFF"}</button>
-      <button class="del-btn" onclick="deleteCombo('${c.id}')">✕</button>
-    </div>`).join("");
+  return combos.map(c=>`<div class="menu-mgmt-row">
+    <div style="font-size:24px;width:40px;text-align:center">${c.emoji}</div>
+    <div class="mmr-info"><div class="mmr-name">${c.name}</div><div class="mmr-cat">${c.itemIds.map(id=>{const it=ITEMS.find(x=>x.id===id);return it?it.name:"";}).join(" + ")}</div></div>
+    <input class="price-input" id="combo-price-${c.id}" value="${c.price}" type="number" min="1">
+    <button class="save-price-btn" onclick="saveComboPrice('${c.id}')">Save</button>
+    <button class="toggle-btn ${c.active?"toggle-on":"toggle-off"}" onclick="toggleCombo('${c.id}')">${c.active?"ON":"OFF"}</button>
+    <button class="del-btn" onclick="deleteCombo('${c.id}')">✕</button>
+  </div>`).join("");
 }
 
-function savePrice(id){
-  const val=parseInt(document.getElementById(`price-${id}`)?.value);
-  if(!val||val<1)return showNotif("⚠ Invalid price");
-  const item=ITEMS.find(x=>x.id===id);
-  if(item){item.price=val;save();showNotif(`✅ ${item.name} → ₹${val}`);}
-}
+function savePrice(id){const val=parseInt(document.getElementById(`price-${id}`)?.value);if(!val||val<1)return showNotif("⚠ Invalid price");const item=ITEMS.find(x=>x.id===id);if(item){item.price=val;save();showNotif(`✅ ${item.name} → ₹${val}`);}}
 function deleteItem(id){ITEMS=ITEMS.filter(x=>x.id!==id);save();renderAdminMenu();showNotif("Item deleted");}
 
 function addNewItem(){
-  const name   = document.getElementById("new-name").value.trim();
-  const price  = parseInt(document.getElementById("new-price").value);
-  const emoji  = document.getElementById("new-emoji").value.trim()||"🍽";
-  const catSel = document.getElementById("new-cat");
-  const cat    = (!catSel||catSel.value==="__new") ? "chat" : catSel.value;
-  const label  = document.getElementById("new-label")?.value||"none";
-  const imgUrl = document.getElementById("new-imgurl")?.value.trim()||null;
-  if(!name)           return showNotif("⚠ Enter item name");
-  if(!price||price<1) return showNotif("⚠ Enter valid price");
-
-  const customCat = customCategories.find(c=>c.id===cat);
-  const id        = "i"+Date.now();
-  const newItem   = {
-    id, name, price, cat, emoji, label,
-    image:   imgUrl,
-    icon:    ICON_MAP[cat]    || "custom-bg",
-    tag:     TAG_MAP[cat]     || "tag-custom",
-    add:     ADD_MAP[cat]     || "add-custom",
-    tagLabel:LABEL_MAP[cat]   || (customCat ? customCat.name : cat),
-    isNew:   true,
-  };
-  ITEMS.push(newItem);
-  save();
+  const name=document.getElementById("new-name").value.trim();
+  const price=parseInt(document.getElementById("new-price").value);
+  const emoji=document.getElementById("new-emoji").value.trim()||"🍽";
+  const catSel=document.getElementById("new-cat");
+  const cat=(!catSel||catSel.value==="__new")?"chat":catSel.value;
+  const label=document.getElementById("new-label")?.value||"none";
+  const imgUrl=document.getElementById("new-imgurl")?.value.trim()||null;
+  if(!name)return showNotif("⚠ Enter item name"); if(!price||price<1)return showNotif("⚠ Enter valid price");
+  const customCat=customCategories.find(c=>c.id===cat);
+  const id="i"+Date.now();
+  const newItem={id,name,price,cat,emoji,label,image:imgUrl,icon:ICON_MAP[cat]||"custom-bg",tag:TAG_MAP[cat]||"tag-custom",add:ADD_MAP[cat]||"add-custom",tagLabel:LABEL_MAP[cat]||(customCat?customCat.name:cat),isNew:true};
+  ITEMS.push(newItem); save();
   if(isFirebaseReady())saveItemToFirebase(newItem);
-  renderAdminMenu();
-  showNotif(`✅ ${name} added!${isFirebaseReady()?" 🔥 Firebase!":""}`);
+  renderAdminMenu(); showNotif(`✅ ${name} added!${isFirebaseReady()?" 🔥 Firebase!":""}`);
 }
 
 function saveComboPrice(id){const val=parseInt(document.getElementById(`combo-price-${id}`)?.value);const c=combos.find(x=>x.id===id);if(c&&val>0){c.price=val;save();showNotif("Combo price updated!");}}
@@ -2121,13 +1722,12 @@ function toggleCombo(id){const c=combos.find(x=>x.id===id);if(c){c.active=!c.act
 function deleteCombo(id){combos=combos.filter(x=>x.id!==id);save();renderAdminMenu();showNotif("Combo deleted");}
 
 function addNewCombo(){
-  const name   = document.getElementById("new-combo-name").value.trim();
-  const emoji  = document.getElementById("new-combo-emoji").value.trim()||"🔥";
-  const price  = parseInt(document.getElementById("new-combo-price").value);
-  const label  = document.getElementById("new-combo-label")?.value||"";
-  const idsRaw = document.getElementById("new-combo-items").value.trim();
-  if(!name)         return showNotif("⚠ Enter combo name");
-  if(!price||price<1)return showNotif("⚠ Enter price");
+  const name=document.getElementById("new-combo-name").value.trim();
+  const emoji=document.getElementById("new-combo-emoji").value.trim()||"🔥";
+  const price=parseInt(document.getElementById("new-combo-price").value);
+  const label=document.getElementById("new-combo-label")?.value||"";
+  const idsRaw=document.getElementById("new-combo-items").value.trim();
+  if(!name)return showNotif("⚠ Enter combo name"); if(!price||price<1)return showNotif("⚠ Enter price");
   const itemIds=idsRaw.split(",").map(s=>s.trim()).filter(Boolean);
   if(itemIds.length<2)return showNotif("⚠ Add at least 2 item IDs");
   combos.push({id:"cb"+Date.now(),name,emoji,itemIds,price,active:true,label});
@@ -2148,8 +1748,7 @@ function openImageModal(itemId){
 }
 function closeImageModal(){document.getElementById("image-modal").classList.remove("show");pendingImageItemId=null;}
 function handleImageUpload(event){
-  const file=event.target.files[0];
-  if(!file)return;
+  const file=event.target.files[0]; if(!file)return;
   if(file.size>2*1024*1024){showNotif("⚠ Image too large! Max 2MB");return;}
   const reader=new FileReader();
   reader.onload=e=>{const p=document.getElementById("image-preview");p.src=e.target.result;p.style.display="block";};
@@ -2158,8 +1757,7 @@ function handleImageUpload(event){
 function loadImageFromURL(){
   const url=document.getElementById("image-url-input").value.trim();
   if(!url.startsWith("http"))return showNotif("⚠ Enter valid https:// URL");
-  const p=document.getElementById("image-preview");
-  p.src=url;p.style.display="block";
+  const p=document.getElementById("image-preview"); p.src=url; p.style.display="block";
   p.onerror=()=>showNotif("⚠ Could not load image from URL");
 }
 function saveItemImage(){
@@ -2173,27 +1771,15 @@ function saveItemImage(){
 //   ADMIN OFFERS
 // ===================================================
 function renderAdminOffers(){
-  const rows=offers.map(o=>`
-    <div class="offer-row">
-      <div style="flex:1">
-        <div class="offer-name">${o.name}</div>
-        <div style="font-size:11px;color:var(--muted)">${o.desc} ${o.timerType&&o.timerType!=="none"?`<span style="background:var(--blue-l);color:var(--blue-d);padding:1px 6px;border-radius:6px;font-weight:700">⏱ ${o.timerType}</span>`:""}</div>
-      </div>
-      <span class="offer-type ot-${o.type}">${o.type}</span>
-      <span class="offer-val">${o.type==="time"?o.value+"%":o.type==="free"?"₹"+o.value+" min":o.type==="bulk"?o.discPct+"%":o.type==="personal"?o.value+"%":"—"}</span>
-      <span class="offer-status ${o.active?"os-active":"os-inactive"}">${o.active?"Active":"Off"}</span>
-      <button class="toggle-btn ${o.active?"toggle-on":"toggle-off"}" onclick="toggleOffer('${o.id}')">${o.active?"Disable":"Enable"}</button>
-      <button class="del-offer-btn" onclick="deleteOffer('${o.id}')">✕</button>
-    </div>`).join("");
-
-  const timerTypeOptions=`
-    <option value="none">No Timer</option>
-    <option value="happy-hour">⚡ Happy Hour Countdown</option>
-    <option value="flash">🔥 Flash Sale Timer</option>
-    <option value="upcoming">🕐 Upcoming (counts down to start)</option>
-    <option value="seasonal">🌿 Seasonal (days remaining)</option>
-    <option value="todays">☀️ Today's Special (ends at midnight)</option>`;
-
+  const rows=offers.map(o=>`<div class="offer-row">
+    <div style="flex:1"><div class="offer-name">${o.name}</div><div style="font-size:11px;color:var(--muted)">${o.desc} ${o.timerType&&o.timerType!=="none"?`<span style="background:var(--blue-l);color:var(--blue-d);padding:1px 6px;border-radius:6px;font-weight:700">⏱ ${o.timerType}</span>`:""}</div></div>
+    <span class="offer-type ot-${o.type}">${o.type}</span>
+    <span class="offer-val">${o.type==="time"?o.value+"%":o.type==="free"?"₹"+o.value+" min":o.type==="bulk"?o.discPct+"%":o.type==="personal"?o.value+"%":"—"}</span>
+    <span class="offer-status ${o.active?"os-active":"os-inactive"}">${o.active?"Active":"Off"}</span>
+    <button class="toggle-btn ${o.active?"toggle-on":"toggle-off"}" onclick="toggleOffer('${o.id}')">${o.active?"Disable":"Enable"}</button>
+    <button class="del-offer-btn" onclick="deleteOffer('${o.id}')">✕</button>
+  </div>`).join("");
+  const timerTypeOptions=`<option value="none">No Timer</option><option value="happy-hour">⚡ Happy Hour Countdown</option><option value="flash">🔥 Flash Sale Timer</option><option value="upcoming">🕐 Upcoming (counts down to start)</option><option value="seasonal">🌿 Seasonal (days remaining)</option><option value="todays">☀️ Today's Special (ends at midnight)</option>`;
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">🎁 Offers Management</div>
     <div class="a-card"><div class="a-card-title">Current Offers</div>${rows||`<div class="empty-state">No offers yet.</div>`}</div>
@@ -2201,18 +1787,9 @@ function renderAdminOffers(){
       <div class="a-card-title">➕ Create New Offer</div>
       <div class="offer-form">
         <input class="a-input" id="of-name" placeholder="Offer name">
-        <select class="a-select" id="of-type" onchange="renderOfferTypeFields()">
-          <option value="time">⏰ Time-Based Discount</option>
-          <option value="free">🎁 Free Item on Min Order</option>
-          <option value="bulk">🛒 Bulk Discount</option>
-          <option value="personal">🎯 Personal Offer</option>
-          <option value="flash">⚡ Flash Sale</option>
-        </select>
+        <select class="a-select" id="of-type" onchange="renderOfferTypeFields()"><option value="time">⏰ Time-Based Discount</option><option value="free">🎁 Free Item on Min Order</option><option value="bulk">🛒 Bulk Discount</option><option value="personal">🎯 Personal Offer</option><option value="flash">⚡ Flash Sale</option></select>
         <input class="a-input offer-form-full" id="of-desc" placeholder="Description shown to customers">
-        <div class="offer-form-full">
-          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px;text-transform:uppercase">⏱ Timer Type</label>
-          <select class="a-select" id="of-timer-type">${timerTypeOptions}</select>
-        </div>
+        <div class="offer-form-full"><label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px;text-transform:uppercase">⏱ Timer Type</label><select class="a-select" id="of-timer-type">${timerTypeOptions}</select></div>
         <div class="offer-form-full" id="of-type-fields"></div>
       </div>
       <button class="a-btn" style="margin-top:12px" onclick="createOffer()">➕ Create Offer</button>
@@ -2221,25 +1798,20 @@ function renderAdminOffers(){
 }
 
 function renderOfferTypeFields(){
-  const type=document.getElementById("of-type")?.value;
-  const f   =document.getElementById("of-type-fields");
-  if(!f)return;
+  const type=document.getElementById("of-type")?.value; const f=document.getElementById("of-type-fields"); if(!f)return;
   const itemOptions=ITEMS.map(i=>`<option value="${i.id}">${i.name}</option>`).join("");
   const custOptions=Object.values(customers).map(c=>`<option value="${c.id}">${c.name} (${c.phone})</option>`).join("");
-  if(type==="time")       f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-disc" placeholder="Discount %" type="number" min="1" max="100"><input class="a-input" id="of-start" placeholder="Start hour (0-23)" type="number" min="0" max="23"><input class="a-input" id="of-end" placeholder="End hour (0-23)" type="number" min="0" max="23"></div>`;
-  else if(type==="free")  f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-minorder" placeholder="Min order ₹" type="number" min="1"><select class="a-select" id="of-freeitem">${itemOptions}</select></div>`;
-  else if(type==="bulk")  f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-bulkqty" placeholder="Min items (e.g. 3)" type="number" min="2"><input class="a-input" id="of-bulkdisc" placeholder="Discount %" type="number" min="1" max="100"></div>`;
+  if(type==="time")f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-disc" placeholder="Discount %" type="number" min="1" max="100"><input class="a-input" id="of-start" placeholder="Start hour (0-23)" type="number" min="0" max="23"><input class="a-input" id="of-end" placeholder="End hour (0-23)" type="number" min="0" max="23"></div>`;
+  else if(type==="free")f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-minorder" placeholder="Min order ₹" type="number" min="1"><select class="a-select" id="of-freeitem">${itemOptions}</select></div>`;
+  else if(type==="bulk")f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-bulkqty" placeholder="Min items (e.g. 3)" type="number" min="2"><input class="a-input" id="of-bulkdisc" placeholder="Discount %" type="number" min="1" max="100"></div>`;
   else if(type==="personal")f.innerHTML=`<div class="offer-form"><select class="a-select" id="of-custid">${custOptions||"<option>No customers</option>"}</select><select class="a-select" id="of-itemid">${itemOptions}</select><input class="a-input" id="of-perdisc" placeholder="Discount %" type="number" min="1" max="100"></div>`;
-  else if(type==="flash") f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-flashdisc" placeholder="Discount %" type="number" min="1" max="100"><input class="a-input" id="of-flashmins" placeholder="Duration in minutes (e.g. 30)" type="number" min="1"></div>`;
+  else if(type==="flash")f.innerHTML=`<div class="offer-form"><input class="a-input" id="of-flashdisc" placeholder="Discount %" type="number" min="1" max="100"><input class="a-input" id="of-flashmins" placeholder="Duration in minutes (e.g. 30)" type="number" min="1"></div>`;
 }
 
 function createOffer(){
-  const name      = document.getElementById("of-name").value.trim();
-  const type      = document.getElementById("of-type").value;
-  const desc      = document.getElementById("of-desc").value.trim();
-  const timerType = document.getElementById("of-timer-type")?.value||"none";
-  if(!name)return showNotif("⚠ Enter offer name");
-  if(!desc)return showNotif("⚠ Enter description");
+  const name=document.getElementById("of-name").value.trim(); const type=document.getElementById("of-type").value;
+  const desc=document.getElementById("of-desc").value.trim(); const timerType=document.getElementById("of-timer-type")?.value||"none";
+  if(!name)return showNotif("⚠ Enter offer name"); if(!desc)return showNotif("⚠ Enter description");
   let offer={id:"o"+Date.now(),name,type,desc,active:true,timerType};
   if(type==="time"){offer.value=parseInt(document.getElementById("of-disc")?.value)||10;offer.startHour=parseInt(document.getElementById("of-start")?.value)||16;offer.endHour=parseInt(document.getElementById("of-end")?.value)||19;}
   else if(type==="free"){offer.value=parseInt(document.getElementById("of-minorder")?.value)||100;const itemId=document.getElementById("of-freeitem")?.value;const item=ITEMS.find(x=>x.id===itemId);offer.freeItem=item?item.name:"Ice Cream";}
@@ -2257,50 +1829,27 @@ function deleteOffer(id){offers=offers.filter(x=>x.id!==id);save();renderAdminOf
 // ===================================================
 function renderAdminCustomers(){
   const custs=Object.values(customers);
-  const rows=custs.length===0
-    ? `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">No customers yet.</td></tr>`
-    : custs.sort((a,b)=>b.totalSpent-a.totalSpent).map(c=>`
-        <tr>
-          <td><b>${c.name}</b>${c.visits>1?`<span class="repeat-chip">Repeat</span>`:""}${c.totalSpent>=500?`<span class="vip-chip">👑 VIP</span>`:""}</td>
-          <td>${c.phone}</td>
-          <td><span style="font-size:11px">${c.email||"—"}</span></td>
-          <td>${c.visits}</td>
-          <td>🌟 ${c.loyaltyPoints||0}</td>
-          <td style="font-weight:800;color:var(--green-d)">₹${c.totalSpent}</td>
-          <td>
-            <button class="a-btn" style="padding:5px 10px;font-size:11px" onclick="createPersonalOfferForCustomer('${c.id}')">🎯 Offer</button>
-            <button class="a-btn" style="padding:5px 10px;font-size:11px;background:var(--green);margin-top:3px" onclick="saveCustomerManuallyToFirebase('${c.id}')">☁️ Sync</button>
-          </td>
-        </tr>`).join("");
-
+  const rows=custs.length===0?`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">No customers yet.</td></tr>`:custs.sort((a,b)=>b.totalSpent-a.totalSpent).map(c=>`<tr>
+    <td><b>${c.name}</b>${c.visits>1?`<span class="repeat-chip">Repeat</span>`:""}${c.totalSpent>=500?`<span class="vip-chip">👑 VIP</span>`:""}</td>
+    <td>${c.phone}</td><td><span style="font-size:11px">${c.email||"—"}</span></td><td>${c.visits}</td><td>🌟 ${c.loyaltyPoints||0}</td>
+    <td style="font-weight:800;color:var(--green-d)">₹${c.totalSpent}</td>
+    <td><button class="a-btn" style="padding:5px 10px;font-size:11px" onclick="createPersonalOfferForCustomer('${c.id}')">🎯 Offer</button><button class="a-btn" style="padding:5px 10px;font-size:11px;background:var(--green);margin-top:3px" onclick="saveCustomerManuallyToFirebase('${c.id}')">☁️ Sync</button></td>
+  </tr>`).join("");
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">👥 Customers (${custs.length})</div>
     <div class="a-card" style="overflow-x:auto">
-      <table class="cust-table">
-        <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Visits</th><th>Points</th><th>Spent</th><th>Actions</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <table class="cust-table"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Visits</th><th>Points</th><th>Spent</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>
     </div>
     ${isFirebaseReady()?`<button class="a-btn" onclick="syncAllCustomersToFirebase()" style="margin-top:12px">☁️ Sync All Customers to Firebase</button>`:""}`;
 }
 
-async function saveCustomerManuallyToFirebase(custId){
-  const cust=customers[custId];
-  if(!cust)return;
-  await saveCustomerFullToFirebase(cust);
-  showNotif(`✅ ${cust.name} synced to Firebase!`);
-}
+async function saveCustomerManuallyToFirebase(custId){const cust=customers[custId];if(!cust)return;await saveCustomerFullToFirebase(cust);showNotif(`✅ ${cust.name} synced to Firebase!`);}
 
 async function syncAllCustomersToFirebase(){
   if(!isFirebaseReady())return showNotif("Firebase not ready");
   showLoader(true);
-  try{
-    for(const cust of Object.values(customers)){
-      await saveCustomerFullToFirebase(cust);
-    }
-    showNotif(`✅ All ${Object.keys(customers).length} customers synced!`);
-  }catch(e){showNotif("Sync error: "+e.message);}
-  finally{showLoader(false);}
+  try{for(const cust of Object.values(customers)){await saveCustomerFullToFirebase(cust);}showNotif(`✅ All ${Object.keys(customers).length} customers synced!`);}
+  catch(e){showNotif("Sync error: "+e.message);}finally{showLoader(false);}
 }
 
 function createPersonalOfferForCustomer(custId){
@@ -2314,103 +1863,44 @@ function createPersonalOfferForCustomer(custId){
 //   ADMIN ORDERS
 // ===================================================
 function renderAdminOrders(){
-  const rows=queue.length===0
-    ? `<div class="empty-state">No active orders. ${isFirebaseReady()?"(Firebase listening in real-time)":"(Local mode)"}</div>`
-    : queue.map((o,i)=>`
-        <div class="order-row">
-          <span class="order-token">Token #${o.token}</span>
-          <span class="status-badge ${o.status==="Ready"?"status-ready":"status-prep"}">${o.status}</span>
-          ${o.deliveryMode==="delivery"
-            ?`<span style="background:var(--blue-l);color:var(--blue-d);font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px">🛵 Delivery</span>`
-            :`<span style="background:var(--green-l);color:var(--green-d);font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px">🏪 Pickup</span>`}
-          <div class="order-items">${Object.keys(o.items||{}).filter(k=>k!=="__combos"&&k!=="__bulk").map(k=>`${k} ×${o.items[k].qty}`).join(", ")}
-            ${o.deliveryAddress?`<div style="font-size:10px;color:var(--muted);margin-top:2px">📍 ${o.deliveryAddress}</div>`:""}
-          </div>
-          <div style="text-align:right">
-            <div class="order-total">₹${o.total}</div>
-            ${o.phone?`<div class="order-phone">${o.phone}</div>`:""}
-          </div>
-          <select class="a-select" style="width:110px;font-size:11px;padding:5px 8px"
-            onchange="updateOrderStatusAdmin(${i},this.value)">
-            ${ORDER_STATUSES.map(s=>`<option value="${s}"${(o.status||"Pending")===s?" selected":""}>${s}</option>`).join("")}
-          </select>
-          <button class="del-btn" onclick="adminRemoveOrder(${i})">✕</button>
-        </div>`).join("");
-  document.getElementById("admin-content").innerHTML=`
-    <div class="a-section-title">📋 Live Orders (${queue.length}) ${isFirebaseReady()?"🔥":""}</div>
-    <div class="a-card">${rows}</div>`;
+  const rows=queue.length===0?`<div class="empty-state">No active orders. ${isFirebaseReady()?"(Firebase listening in real-time)":"(Local mode)"}</div>`:queue.map((o,i)=>`<div class="order-row">
+    <span class="order-token">Token #${o.token}</span>
+    <span class="status-badge ${o.status==="Ready"?"status-ready":"status-prep"}">${o.status}</span>
+    ${o.deliveryMode==="delivery"?`<span style="background:var(--blue-l);color:var(--blue-d);font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px">🛵 Delivery</span>`:`<span style="background:var(--green-l);color:var(--green-d);font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px">🏪 Pickup</span>`}
+    <div class="order-items">${Object.keys(o.items||{}).filter(k=>k!=="__combos"&&k!=="__bulk").map(k=>`${k} ×${o.items[k].qty}`).join(", ")}${o.deliveryAddress?`<div style="font-size:10px;color:var(--muted);margin-top:2px">📍 ${o.deliveryAddress}</div>`:""}</div>
+    <div style="text-align:right"><div class="order-total">₹${o.total}</div>${o.phone?`<div class="order-phone">${o.phone}</div>`:""}</div>
+    <select class="a-select" style="width:110px;font-size:11px;padding:5px 8px" onchange="updateOrderStatusAdmin(${i},this.value)">${ORDER_STATUSES.map(s=>`<option value="${s}"${(o.status||"Pending")===s?" selected":""}>${s}</option>`).join("")}</select>
+    <button class="del-btn" onclick="adminRemoveOrder(${i})">✕</button>
+  </div>`).join("");
+  document.getElementById("admin-content").innerHTML=`<div class="a-section-title">📋 Live Orders (${queue.length}) ${isFirebaseReady()?"🔥":""}</div><div class="a-card">${rows}</div>`;
 }
 
-function updateOrderStatusAdmin(idx, status) {
-  if(!queue[idx]) return;
-  queue[idx].status=status;
-  if(queue[idx]._docId) updateOrderStatusInFirebase(queue[idx]._docId, status);
-  save();
-  showNotif("✅ Token #"+queue[idx].token+" → "+status);
-}
+function updateOrderStatusAdmin(idx,status){if(!queue[idx])return;queue[idx].status=status;if(queue[idx]._docId)updateOrderStatusInFirebase(queue[idx]._docId,status);save();showNotif("✅ Token #"+queue[idx].token+" → "+status);}
 function adminRemoveOrder(i){queue.splice(i,1);save();renderAdminOrders();}
 
 // ===================================================
 //   ADMIN ANALYTICS
 // ===================================================
 function renderAdminAnalytics(){
-  const tabs=["today","week","month"].map(p=>
-    `<button class="period-btn${adminPeriod===p?" active":""}" onclick="adminPeriod='${p}';renderAdminAnalytics()">${p[0].toUpperCase()+p.slice(1)}</button>`
-  ).join("");
-
+  const tabs=["today","week","month"].map(p=>`<button class="period-btn${adminPeriod===p?" active":""}" onclick="adminPeriod='${p}';renderAdminAnalytics()">${p[0].toUpperCase()+p.slice(1)}</button>`).join("");
   const logs=getPeriodLogs(adminPeriod);
-  const CAT_OPTIONS=Object.keys(LABEL_MAP);
-  const catSales={};
-  CAT_OPTIONS.forEach(c=>catSales[c]=0);
-  logs.forEach(l=>{
-    Object.keys(l.items||{}).forEach(k=>{
-      if(k==="__combos"||k==="__bulk")return;
-      const item=ITEMS.find(x=>x.name===k);
-      if(item)catSales[item.cat]=(catSales[item.cat]||0)+(l.items[k].qty||0);
-    });
-  });
+  const CAT_OPTIONS=Object.keys(LABEL_MAP); const catSales={}; CAT_OPTIONS.forEach(c=>catSales[c]=0);
+  logs.forEach(l=>{Object.keys(l.items||{}).forEach(k=>{if(k==="__combos"||k==="__bulk")return;const item=ITEMS.find(x=>x.name===k);if(item)catSales[item.cat]=(catSales[item.cat]||0)+(l.items[k].qty||0);});});
   const maxCatSale=Math.max(...Object.values(catSales),1);
-  const catBars=Object.entries(catSales).map(([cat,qty])=>{
-    const pct=Math.round((qty/maxCatSale)*100);
-    const color=BAR_COLORS[cat]||"var(--brand)";
-    return `<div class="item-analytics-row"><div class="item-analytics-name">${LABEL_MAP[cat]||cat}</div><div class="item-analytics-bar-wrap"><div class="item-analytics-bar" style="width:${pct}%;background:${color}"></div></div><div class="item-analytics-val">${qty}</div></div>`;
-  }).join("");
-
+  const catBars=Object.entries(catSales).map(([cat,qty])=>{const pct=Math.round((qty/maxCatSale)*100);const color=BAR_COLORS[cat]||"var(--brand)";return `<div class="item-analytics-row"><div class="item-analytics-name">${LABEL_MAP[cat]||cat}</div><div class="item-analytics-bar-wrap"><div class="item-analytics-bar" style="width:${pct}%;background:${color}"></div></div><div class="item-analytics-val">${qty}</div></div>`;}).join("");
   const hourlyRev=new Array(24).fill(0);
   logs.forEach(l=>{hourlyRev[new Date(l.time).getHours()]+=l.total;});
-  const maxH=Math.max(...hourlyRev,1);
-  const peakHour=hourlyRev.indexOf(Math.max(...hourlyRev));
-  const hourBars=hourlyRev.map((v,i)=>{
-    const h=i===0?"12a":i<12?`${i}a`:i===12?"12p":`${i-12}p`;
-    const ht=Math.round((v/maxH)*60)+2;
-    return`<div class="bar-col"><div class="bar-val" style="font-size:8px">${v>0?"₹"+v:""}</div><div class="bar" style="height:${ht}px;background:${v===Math.max(...hourlyRev)?"var(--panipuri)":"var(--admin)"}"></div><div class="bar-label">${h}</div></div>`;
-  }).join("");
-
+  const maxH=Math.max(...hourlyRev,1); const peakHour=hourlyRev.indexOf(Math.max(...hourlyRev));
+  const hourBars=hourlyRev.map((v,i)=>{const h=i===0?"12a":i<12?`${i}a`:i===12?"12p":`${i-12}p`;const ht=Math.round((v/maxH)*60)+2;return`<div class="bar-col"><div class="bar-val" style="font-size:8px">${v>0?"₹"+v:""}</div><div class="bar" style="height:${ht}px;background:${v===Math.max(...hourlyRev)?"var(--panipuri)":"var(--admin)"}"></div><div class="bar-label">${h}</div></div>`;}).join("");
   const itemCounts={};
-  logs.forEach(l=>Object.keys(l.items||{}).forEach(k=>{
-    if(k==="__combos"||k==="__bulk")return;
-    itemCounts[k]=(itemCounts[k]||0)+(l.items[k].qty||0);
-  }));
+  logs.forEach(l=>Object.keys(l.items||{}).forEach(k=>{if(k==="__combos"||k==="__bulk")return;itemCounts[k]=(itemCounts[k]||0)+(l.items[k].qty||0);}));
   const topItems=Object.entries(itemCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const maxItem=Math.max(...topItems.map(([,v])=>v),1);
-  const itemBars=topItems.map(([name,qty])=>{
-    const item=ITEMS.find(x=>x.name===name);
-    const rev=qty*(item?item.price:0);
-    const pct=Math.round((qty/maxItem)*100);
-    const color=item?BAR_COLORS[item.cat]||"var(--brand)":"var(--brand)";
-    return`<div class="item-analytics-row">
-      <div class="item-analytics-name">${item?item.emoji+" ":""} ${name}</div>
-      <div class="item-analytics-bar-wrap"><div class="item-analytics-bar" style="width:${pct}%;background:${color}"></div></div>
-      <div class="item-analytics-val">${qty}</div>
-      <div style="font-size:11px;font-weight:700;color:var(--green-d);min-width:52px;text-align:right">₹${rev}</div>
-    </div>`;
-  }).join("");
-
-  const delivOrders  = logs.filter(l=>l.deliveryMode==="delivery").length;
-  const pickupOrders = logs.length-delivOrders;
-  const delivRev     = logs.filter(l=>l.deliveryMode==="delivery").reduce((s,l)=>s+l.total,0);
-  const loyaltyEngaged = Object.values(customers).filter(c=>(c.loyaltyPoints||0)>0).length;
-
+  const itemBars=topItems.map(([name,qty])=>{const item=ITEMS.find(x=>x.name===name);const rev=qty*(item?item.price:0);const pct=Math.round((qty/maxItem)*100);const color=item?BAR_COLORS[item.cat]||"var(--brand)":"var(--brand)";return`<div class="item-analytics-row"><div class="item-analytics-name">${item?item.emoji+" ":""} ${name}</div><div class="item-analytics-bar-wrap"><div class="item-analytics-bar" style="width:${pct}%;background:${color}"></div></div><div class="item-analytics-val">${qty}</div><div style="font-size:11px;font-weight:700;color:var(--green-d);min-width:52px;text-align:right">₹${rev}</div></div>`;}).join("");
+  const delivOrders=logs.filter(l=>l.deliveryMode==="delivery").length;
+  const pickupOrders=logs.length-delivOrders;
+  const delivRev=logs.filter(l=>l.deliveryMode==="delivery").reduce((s,l)=>s+l.total,0);
+  const loyaltyEngaged=Object.values(customers).filter(c=>(c.loyaltyPoints||0)>0).length;
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">📈 Detailed Analytics</div>
     <div class="period-tabs">${tabs}</div>
@@ -2433,23 +1923,17 @@ function renderAdminAnalytics(){
 //   ADMIN MARKETING
 // ===================================================
 function renderAdminMarketing(){
-  const contactRows=adminContactNumbers.map((n,i)=>`
-    <div class="contact-mgmt-row" id="cmr-${n.id}">
-      <div class="cmr-info">
-        <div class="cmr-label">${n.label}</div>
-        <div class="cmr-number">${n.number}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        ${n.whatsapp?`<span class="wa-badge">💬 WhatsApp</span>`:""}
-        <span class="contact-status-badge ${n.active?"contact-active":"contact-inactive"}">${n.active?"● Active":"○ Inactive"}</span>
-        <button class="toggle-btn ${n.active?"toggle-on":"toggle-off"}" onclick="setActiveContact('${n.id}')">${n.active?"Active ✓":"Set Active"}</button>
-        <button class="del-btn" onclick="deleteContact('${n.id}')">✕</button>
-      </div>
-    </div>`).join("");
-
+  const contactRows=adminContactNumbers.map((n,i)=>`<div class="contact-mgmt-row" id="cmr-${n.id}">
+    <div class="cmr-info"><div class="cmr-label">${n.label}</div><div class="cmr-number">${n.number}</div></div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      ${n.whatsapp?`<span class="wa-badge">💬 WhatsApp</span>`:""}
+      <span class="contact-status-badge ${n.active?"contact-active":"contact-inactive"}">${n.active?"● Active":"○ Inactive"}</span>
+      <button class="toggle-btn ${n.active?"toggle-on":"toggle-off"}" onclick="setActiveContact('${n.id}')">${n.active?"Active ✓":"Set Active"}</button>
+      <button class="del-btn" onclick="deleteContact('${n.id}')">✕</button>
+    </div>
+  </div>`).join("");
   document.getElementById("admin-content").innerHTML=`
     <div class="a-section-title">📣 Marketing & Contact Settings</div>
-
     <div class="a-card" style="border:2px solid var(--admin)">
       <div class="a-card-title" style="font-size:14px;font-weight:800;color:var(--admin)">📞 Customer Contact Number Manager</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px">The <b>active</b> number is shown on the customer ordering screen.</div>
@@ -2457,34 +1941,22 @@ function renderAdminMarketing(){
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
         <div class="a-card-title">➕ Add Contact Number</div>
         <div class="add-item-form">
-          <input class="a-input" id="new-contact-label"  placeholder="Label (e.g. Manager, Store)">
+          <input class="a-input" id="new-contact-label" placeholder="Label (e.g. Manager, Store)">
           <input class="a-input" id="new-contact-number" placeholder="10-digit phone number" type="tel" maxlength="12">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer">
-            <input type="checkbox" id="new-contact-wa" checked style="width:auto"> WhatsApp enabled
-          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer"><input type="checkbox" id="new-contact-wa" checked style="width:auto"> WhatsApp enabled</label>
         </div>
         <button class="a-btn a-btn-green" style="margin-top:10px" onclick="addContactNumber()">➕ Add Number</button>
       </div>
     </div>
-
     <div class="a-card" style="background:linear-gradient(135deg,#e8fff0,#d5ffe8);border:2px solid var(--green)">
       <div class="a-card-title" style="color:var(--green-d)">💳 UPI Payment Collection</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <div style="font-size:13px;font-weight:600;color:var(--text)">
-          🏦 UPI ID: <b style="color:var(--green-d)">${UPI_CONFIG.upiId}</b>
-        </div>
-        <div style="font-size:13px;font-weight:600;color:var(--text)">
-          📱 UPI Number: <b style="color:var(--admin)">${UPI_CONFIG.upiNum}</b>
-        </div>
-        <div style="font-size:13px;font-weight:600;color:var(--text)">
-          👤 Account Name: <b>${UPI_CONFIG.name}</b>
-        </div>
-        <div style="font-size:12px;color:var(--muted);background:rgba(99,153,34,0.08);padding:8px 12px;border-radius:8px;margin-top:4px">
-          ✅ Customers will see this UPI ID and QR code when they click "Pay via UPI"
-        </div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">🏦 UPI ID: <b style="color:var(--green-d)">${UPI_CONFIG.upiId}</b></div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">📱 UPI Number: <b style="color:var(--admin)">${UPI_CONFIG.upiNum}</b></div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">👤 Account Name: <b>${UPI_CONFIG.name}</b></div>
+        <div style="font-size:12px;color:var(--muted);background:rgba(99,153,34,0.08);padding:8px 12px;border-radius:8px;margin-top:4px">✅ Customers will see this UPI ID and QR code when they click "Pay via UPI"</div>
       </div>
     </div>
-
     <div class="a-card">
       <div class="a-card-title">📍 Store Location & Delivery Zone</div>
       <div class="store-info-grid">
@@ -2493,7 +1965,6 @@ function renderAdminMarketing(){
       </div>
       <a href="${STORE_LOCATION.mapUrl}" target="_blank" class="map-link-btn" style="display:inline-block;margin-top:10px">🗺️ View Store on Google Maps</a>
     </div>
-
     <div class="marketing-card">
       <div class="marketing-card-title">🔥 Firebase Deployment Guide <span class="roi-badge">Go Live</span></div>
       <div class="marketing-tip"><div class="marketing-tip-icon">1️⃣</div><b>Firebase Hosting:</b> Run <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">firebase deploy</code> → Free URL at sv-chat-center.web.app</div>
@@ -2502,29 +1973,292 @@ function renderAdminMarketing(){
     </div>`;
 }
 
-function setActiveContact(id){
-  adminContactNumbers.forEach(n=>n.active=n.id===id);
-  save();
-  renderAdminMarketing();
-  renderContactBar();
-  showNotif("✅ Active contact number updated!");
+function setActiveContact(id){adminContactNumbers.forEach(n=>n.active=n.id===id);save();renderAdminMarketing();renderContactBar();showNotif("✅ Active contact number updated!");}
+function deleteContact(id){if(adminContactNumbers.length<=1){showNotif("⚠ Keep at least one contact number");return;}adminContactNumbers=adminContactNumbers.filter(n=>n.id!==id);if(!adminContactNumbers.find(n=>n.active))adminContactNumbers[0].active=true;save();renderAdminMarketing();renderContactBar();showNotif("Contact removed");}
+function addContactNumber(){const label=document.getElementById("new-contact-label")?.value.trim();const number=document.getElementById("new-contact-number")?.value.trim();const wa=document.getElementById("new-contact-wa")?.checked;if(!label)return showNotif("⚠ Enter a label");if(number.length<10)return showNotif("⚠ Enter valid phone number");adminContactNumbers.push({id:"n"+Date.now(),label,number,whatsapp:!!wa,active:false});save();renderAdminMarketing();showNotif(`✅ Contact "${label}" added!`);}
+
+// ===================================================
+//   ADMIN PAYMENTS TAB — FIREBASE ONLY
+// ===================================================
+function escHtml(str) {
+  return String(str||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
-function deleteContact(id){
-  if(adminContactNumbers.length<=1){showNotif("⚠ Keep at least one contact number");return;}
-  adminContactNumbers=adminContactNumbers.filter(n=>n.id!==id);
-  if(!adminContactNumbers.find(n=>n.active))adminContactNumbers[0].active=true;
-  save();renderAdminMarketing();renderContactBar();showNotif("Contact removed");
+function renderAdminPayments() {
+  const today    = getTodayKey();
+  const summary  = getPaymentSummary(today);
+  const allDates = [...new Set(paymentRecords.map(r => getDateKey(r.time)))].sort().reverse();
+
+  // Compare with orders placed today via salesLog
+  const todayLogs = salesLog.filter(l => getDateKey(l.time) === today);
+  const ordersRev = todayLogs.reduce((s, l) => s + l.total, 0);
+  const diffAmt   = ordersRev - summary.total;
+  const diffColor = diffAmt <= 0 ? "var(--green-d)" : "var(--red-d)";
+  const diffLabel = diffAmt <= 0 ? "✅ Fully collected" : `⚠ ₹${diffAmt} still pending`;
+
+  // UPI config
+  const savedCfg = JSON.parse(localStorage.getItem("sv_payment_config") || "{}");
+  const upiId    = savedCfg.upiId  || UPI_CONFIG.upiId;
+  const upiNum   = savedCfg.upiNum || UPI_CONFIG.upiNum;
+  const upiName  = savedCfg.name   || UPI_CONFIG.name;
+  const liveQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&cu=INR`)}&color=1a0a2e&bgcolor=ffffff&margin=12`;
+
+  // Firebase not connected
+  if (!paymentRecordsLoaded && !isFirebaseReady()) {
+    document.getElementById("admin-content").innerHTML = `
+      <div class="a-section-title">💳 Payments Dashboard</div>
+      <div class="fb-checker-panel fb-warn">
+        <div class="fb-checker-header"><span class="fb-checker-icon">⚠️</span><span class="fb-checker-title">Firebase Not Connected</span></div>
+        <div style="font-size:13px;color:var(--amber-d);font-weight:600;padding:8px 0">Payment records are stored only in Firebase.<br>Please check your internet connection and reload the page.</div>
+        <button class="fb-test-btn" onclick="reloadPayments()">🔄 Retry Connection</button>
+      </div>`;
+    return;
+  }
+
+  // Today's transaction list
+  const recsHTML = summary.recs.length === 0
+    ? `<div class="empty-state">No payments recorded today. Add your first below ↓</div>`
+    : [...summary.recs].reverse().map(r => `
+        <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:13px;font-weight:700;color:var(--text)">${escHtml(r.customerName||"Walk-in")}</div>
+            <div style="font-size:11px;color:var(--muted)">${escHtml(r.note||"")}${r.note?" • ":""}${new Date(r.time).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})}</div>
+          </div>
+          <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:10px;${r.mode==="online"?"background:var(--blue-l);color:var(--blue-d)":"background:var(--amber-l);color:var(--amber-d)"}">
+            ${r.mode==="online"?"🌐 Online":"💵 Cash"}
+          </span>
+          <span style="font-size:16px;font-weight:800;color:var(--green-d)">₹${r.amount}</span>
+          <button onclick="confirmDeletePayment('${r._docId||""}','${r.id}')" style="padding:4px 9px;background:var(--red-l);color:var(--red-d);border:1.5px solid var(--red);border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif">✕</button>
+        </div>`).join("");
+
+  // 7-day history rows
+  const histHTML = allDates.slice(0,7).map(d => {
+    const s=getPaymentSummary(d); const isToday=d===today;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:var(--text)">${isToday?"📅 Today":d} <span style="font-size:10px;color:var(--muted);margin-left:4px">${s.count} payment${s.count!==1?"s":""}</span></div>
+        <div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;color:var(--blue-d);background:var(--blue-l);padding:2px 9px;border-radius:8px">🌐 ₹${s.online}</span>
+          <span style="font-size:11px;font-weight:700;color:var(--amber-d);background:var(--amber-l);padding:2px 9px;border-radius:8px">💵 ₹${s.offline}</span>
+        </div>
+      </div>
+      <div style="font-size:20px;font-weight:800;color:var(--green-d)">₹${s.total}</div>
+    </div>`;
+  }).join("") || `<div class="empty-state">No history yet.</div>`;
+
+  // 7-day bar chart
+  const chartDates = allDates.slice(0,7).reverse();
+  const maxVal     = Math.max(...chartDates.map(d=>getPaymentSummary(d).total),1);
+  const chartHTML  = chartDates.map(d => {
+    const s=getPaymentSummary(d); const h=Math.round((s.total/maxVal)*72)+4;
+    const isToday=d===today; const label=isToday?"Today":d.slice(5);
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+      <div style="font-size:9px;font-weight:700;color:var(--text)">${s.total>0?"₹"+s.total:""}</div>
+      <div style="height:${h}px;width:100%;border-radius:6px 6px 0 0;background:${isToday?"var(--green)":"var(--admin)"}"></div>
+      <div style="font-size:9px;color:var(--muted);font-weight:600;white-space:nowrap">${label}</div>
+    </div>`;
+  }).join("");
+
+  document.getElementById("admin-content").innerHTML = `
+    <div class="a-section-title">💳 Payments Dashboard</div>
+
+    <!-- FIREBASE BADGE -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 14px;background:linear-gradient(135deg,#eafff0,#f0fff7);border:1.5px solid var(--green);border-radius:10px">
+      <span style="font-size:14px">🔥</span>
+      <span style="font-size:12px;font-weight:700;color:var(--green-d)">All payment records saved to Firebase only — synced across devices in real-time</span>
+      <button onclick="reloadPayments()" style="margin-left:auto;padding:5px 12px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif">🔄 Refresh</button>
+    </div>
+
+    <!-- DATE LABEL -->
+    <div style="margin-bottom:10px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
+      📅 Today — ${new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",timeZone:"Asia/Kolkata"})}
+    </div>
+
+    <!-- INCOME SUMMARY CARDS -->
+    <div class="a-stat-grid" style="margin-bottom:20px">
+      <div class="a-stat-card" style="border:2px solid var(--green);background:linear-gradient(135deg,var(--green-l),#e8ffd5)">
+        <div class="a-stat-label">💰 Total Collected</div>
+        <div class="a-stat-val green" style="font-size:28px">₹${summary.total.toLocaleString("en-IN")}</div>
+        <div style="font-size:11px;color:var(--green-d);margin-top:4px;font-weight:600">${summary.count} payment${summary.count!==1?"s":""} today</div>
+      </div>
+      <div class="a-stat-card" style="border:2px solid var(--blue);background:linear-gradient(135deg,var(--blue-l),#d5e8ff)">
+        <div class="a-stat-label">🌐 Online (UPI / GPay)</div>
+        <div class="a-stat-val blue" style="font-size:28px">₹${summary.online.toLocaleString("en-IN")}</div>
+        <div style="font-size:11px;color:var(--blue-d);margin-top:4px;font-weight:600">${summary.recs.filter(r=>r.mode==="online").length} transactions</div>
+      </div>
+      <div class="a-stat-card" style="border:2px solid var(--amber);background:linear-gradient(135deg,var(--amber-l),#ffecd5)">
+        <div class="a-stat-label">💵 Offline (Cash)</div>
+        <div class="a-stat-val orange" style="font-size:28px">₹${summary.offline.toLocaleString("en-IN")}</div>
+        <div style="font-size:11px;color:var(--amber-d);margin-top:4px;font-weight:600">${summary.recs.filter(r=>r.mode==="offline").length} transactions</div>
+      </div>
+      <div class="a-stat-card" style="border:2px solid ${diffAmt<=0?"var(--green)":"var(--red)"}">
+        <div class="a-stat-label">📋 Orders Revenue Today</div>
+        <div class="a-stat-val" style="font-size:22px;color:var(--text)">₹${ordersRev.toLocaleString("en-IN")}</div>
+        <div style="font-size:11px;font-weight:700;margin-top:4px;color:${diffColor}">${diffLabel}</div>
+      </div>
+    </div>
+
+    <!-- 7-DAY CHART -->
+    ${chartDates.length>0?`
+    <div class="a-chart-wrap" style="margin-bottom:16px">
+      <div class="a-chart-title">📊 Last 7 Days — Daily Collection</div>
+      <div style="display:flex;align-items:flex-end;gap:8px;height:95px;padding-top:8px">${chartHTML}</div>
+    </div>`:""}
+
+    <!-- ADD PAYMENT FORM -->
+    <div class="a-card" style="border:2px solid var(--green)">
+      <div class="a-card-title" style="color:var(--green-d);font-size:14px;font-weight:800">➕ Record New Payment</div>
+      <div class="add-item-form">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Customer Name (optional)</label>
+          <input class="a-input" id="pay-cust-name" placeholder="e.g. Walk-in, Rahul, Token #12">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Amount (₹)</label>
+          <input class="a-input" id="pay-amount" type="number" min="1" placeholder="Enter amount" onkeydown="if(event.key==='Enter')recordPayment()">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Payment Mode</label>
+          <select class="a-select" id="pay-mode">
+            <option value="online">🌐 Online (UPI / GPay / PhonePe)</option>
+            <option value="offline">💵 Offline (Cash)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Note (optional)</label>
+          <input class="a-input" id="pay-note" placeholder="e.g. Token #5, Combo, Table 3">
+        </div>
+        <div class="offer-form-full">
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">⚡ Quick-fill from Pending Order</label>
+          <select class="a-select" id="pay-from-order" onchange="fillFromOrder(this.value)">
+            <option value="">— Select a pending order to auto-fill amount —</option>
+            ${queue.filter(o=>o.status!=="Done").map(o=>`<option value="${o.total}|${escHtml(o.userName||"Token #"+o.token)}|Token #${o.token}">Token #${o.token} — ${escHtml(o.userName||"Guest")} — ₹${o.total} (${o.deliveryMode||"pickup"})</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+        <button onclick="recordPayment()" style="padding:13px 28px;background:linear-gradient(135deg,var(--green-d),var(--green));color:#fff;border:none;border-radius:11px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif;box-shadow:0 4px 15px rgba(99,153,34,0.35)">💾 Save Payment to Firebase</button>
+        <button onclick="quickRecord('offline')" style="padding:13px 20px;background:linear-gradient(135deg,var(--amber-d),var(--amber));color:#fff;border:none;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif">⚡ Quick Cash</button>
+        <button onclick="quickRecord('online')" style="padding:13px 20px;background:linear-gradient(135deg,var(--blue-d),var(--blue));color:#fff;border:none;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif">⚡ Quick UPI</button>
+      </div>
+    </div>
+
+    <!-- TODAY'S TRANSACTIONS -->
+    <div class="a-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div class="a-card-title" style="margin:0">📄 Today's Transactions (${summary.count})</div>
+        ${summary.count>0?`<button onclick="exportTodayCSV()" style="padding:7px 16px;background:var(--admin);color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif">📥 Export CSV</button>`:""}
+      </div>
+      ${recsHTML}
+    </div>
+
+    <!-- UPI QR -->
+    <div class="a-card" style="border:2px solid rgba(45,27,94,0.2)">
+      <div class="a-card-title" style="font-size:14px;font-weight:800;color:var(--brand)">📱 Your UPI Collection QR</div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+        <div style="text-align:center">
+          <img src="${liveQrUrl}" style="width:150px;height:150px;border-radius:12px;border:2px solid var(--brand);box-shadow:0 6px 20px rgba(45,27,94,0.2)" onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiId)}&margin=10'" />
+          <div style="font-size:11px;color:var(--muted);margin-top:6px;font-weight:600">Scan to Pay</div>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div style="background:var(--brand-l);border-radius:12px;padding:12px;margin-bottom:10px">
+            <div style="font-size:15px;font-weight:800;color:var(--brand)">🏦 ${upiId}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-top:4px">📱 ${upiNum}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--text)">👤 ${upiName}</div>
+          </div>
+          <button onclick="copyPaymentText('${upiId}')" style="width:100%;padding:9px;background:var(--brand-l);color:var(--brand);border:1.5px solid var(--brand);border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Poppins',sans-serif">📋 Copy UPI ID</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7-DAY HISTORY -->
+    <div class="a-card">
+      <div class="a-card-title">📆 Payment History — Last 7 Days</div>
+      ${histHTML}
+    </div>
+
+    <!-- TIPS -->
+    <div class="marketing-card">
+      <div class="marketing-card-title">💡 Payment Tips <span class="roi-badge">Important</span></div>
+      <div class="marketing-tip"><div class="marketing-tip-icon">1️⃣</div><b>Every payment is saved directly to Firebase</b> — accessible from any device, any browser.</div>
+      <div class="marketing-tip"><div class="marketing-tip-icon">2️⃣</div><b>Use Quick-fill dropdown</b> to auto-fill amount from a pending order token.</div>
+      <div class="marketing-tip"><div class="marketing-tip-icon">3️⃣</div><b>Export CSV</b> every evening to keep an offline accounting record.</div>
+      <div class="marketing-tip"><div class="marketing-tip-icon">4️⃣</div><b>"Orders Revenue"</b> card shows the gap between orders placed and payments recorded.</div>
+    </div>`;
 }
 
-function addContactNumber(){
-  const label  = document.getElementById("new-contact-label")?.value.trim();
-  const number = document.getElementById("new-contact-number")?.value.trim();
-  const wa     = document.getElementById("new-contact-wa")?.checked;
-  if(!label)           return showNotif("⚠ Enter a label");
-  if(number.length<10) return showNotif("⚠ Enter valid phone number");
-  adminContactNumbers.push({id:"n"+Date.now(),label,number,whatsapp:!!wa,active:false});
-  save();renderAdminMarketing();showNotif(`✅ Contact "${label}" added!`);
+// Payment helper functions
+function fillFromOrder(val) {
+  if(!val)return;
+  const [amount,name,note]=val.split("|");
+  const amtEl=document.getElementById("pay-amount"); const nameEl=document.getElementById("pay-cust-name"); const noteEl=document.getElementById("pay-note");
+  if(amtEl)amtEl.value=amount||""; if(nameEl)nameEl.value=name||""; if(noteEl)noteEl.value=note||"";
+}
+
+async function recordPayment() {
+  const amount=parseFloat(document.getElementById("pay-amount")?.value);
+  if(!amount||amount<=0){showNotif("⚠ Enter a valid amount");return;}
+  const rec={
+    id:"pay_"+Date.now()+"_"+Math.random().toString(36).slice(2,7),
+    amount,
+    mode:       document.getElementById("pay-mode")?.value        || "offline",
+    customerName:document.getElementById("pay-cust-name")?.value.trim() || "Walk-in",
+    note:       document.getElementById("pay-note")?.value.trim() || "",
+    time:       Date.now(),
+    savedBy:    currentUser?.name || "Admin",
+  };
+  showNotif("💾 Saving to Firebase...");
+  const docId=await savePaymentToFirebase(rec);
+  if(!docId)return; // Firebase failed — abort
+  rec._docId=docId;
+  paymentRecords.push(rec);
+  showNotif(`✅ ₹${amount} ${rec.mode==="online"?"🌐 Online":"💵 Cash"} saved to Firebase!`);
+  ["pay-amount","pay-cust-name","pay-note"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  const sel=document.getElementById("pay-from-order"); if(sel)sel.value="";
+  renderAdminPayments();
+}
+
+function quickRecord(mode) {
+  const amount=parseFloat(document.getElementById("pay-amount")?.value);
+  if(!amount||amount<=0){showNotif("⚠ Enter amount first, then click");return;}
+  const sel=document.getElementById("pay-mode"); if(sel)sel.value=mode;
+  recordPayment();
+}
+
+function confirmDeletePayment(docId,recId) {
+  if(!confirm("Delete this payment record from Firebase? This cannot be undone."))return;
+  deletePaymentRecord(docId,recId);
+}
+
+async function deletePaymentRecord(docId,recId) {
+  await deletePaymentFromFirebase(docId);
+  paymentRecords=paymentRecords.filter(r=>r._docId!==docId&&r.id!==recId);
+  showNotif("🗑 Payment deleted from Firebase");
+  renderAdminPayments();
+}
+
+async function reloadPayments() {
+  showNotif("🔄 Reloading from Firebase...");
+  await loadPaymentRecordsFromFirebase();
+  renderAdminPayments();
+  showNotif("✅ Payment records refreshed!");
+}
+
+function exportTodayCSV() {
+  const today=getTodayKey();
+  const recs=paymentRecords.filter(r=>getDateKey(r.time)===today);
+  if(recs.length===0){showNotif("No records to export");return;}
+  const header="Time,Customer,Mode,Amount (INR),Note,Saved By\n";
+  const rows=[...recs].reverse().map(r=>`"${new Date(r.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})}","${r.customerName}","${r.mode}","${r.amount}","${r.note}","${r.savedBy||""}"`).join("\n");
+  const blob=new Blob([header+rows],{type:"text/csv"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=`sv_payments_${today}.csv`; a.click();
+  URL.revokeObjectURL(url); showNotif("📥 CSV downloaded!");
+}
+
+function copyPaymentText(text) {
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>showNotif("✅ Copied: "+text));}
+  else{const ta=document.createElement("textarea");ta.value=text;ta.style.cssText="position:fixed;top:-9999px;opacity:0";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);showNotif("✅ Copied: "+text);}
 }
 
 // ===================================================
@@ -2541,13 +2275,13 @@ style.textContent=`@keyframes confetti-fall{0%{transform:translateY(-20px) rotat
 document.head.appendChild(style);
 
 // ===================================================
-//   ✅ FIREBASE READY — fetches ALL customers from cloud
-//      so login works from any device
+//   FIREBASE READY — loads all data from cloud
 // ===================================================
 window._onFirebaseReady = async function() {
   console.log("🔥 Firebase ready — fetching persisted data...");
   await fetchCustomersFromFirebase();
   await fetchOrdersFromFirebase();
+  await loadPaymentRecordsFromFirebase(); // ✅ Payments loaded from Firebase only
   listenToOrders();
   loadItemsFromFirebase();
   loadOffersFromFirebase();
